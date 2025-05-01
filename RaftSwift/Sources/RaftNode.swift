@@ -1,28 +1,47 @@
-import Foundation
 import Distributed
 import DistributedCluster
+import Foundation
 
-distributed actor RaftNode {
+extension DistributedReception.Key {
+    static var raftNode: DistributedReception.Key<RaftNode> {
+        "raftNode"
+    }
+}
+
+distributed actor RaftNode: LifecycleWatch {
     typealias ActorSystem = ClusterSystem
 
     // MARK: - Properties
 
-    let config: RaftConfig
-    var state: RaftState = .candidate
-    var currentTerm = 0
-    var votedFor: Int?
-    var log: [LogEntry] = []
-    var commitIndex = 0
-    var lastApplied = 0
+    private let config: RaftConfig
+
+    private var state: RaftState = .follower
+    private var currentTerm: Int = 0
+    private var votedFor: ActorSystem.ActorID?
+    private var log: [LogEntry] = []
+    private var commitIndex = 0
+    private var lastApplied = 0
+
+    /// Election timeout in milliseconds
+    private var electionTimeout: Int
+    private var lastHeartbeat = Date()
+    private var timerTask: Task<Void, Never>?
+    private var heartbeatTask: Task<Void, Never>?
+    private var listingTask: Task<Void, Never>?
+    private var peers: Set<RaftNode> = []
+
+    private var majority: Int {
+        (peers.count + 1) / 2
+    }
 
     // Only used by leader
-    var lastHeartbeat = Date()
     var nextIndex: [Int: Int] = [:]
     var matchIndex: [Int: Int] = [:]
 
     init(config: RaftConfig = .init(), actorSystem: ActorSystem) {
         self.config = config
         self.actorSystem = actorSystem
+        self.electionTimeout = Int.random(in: config.electionTimeoutRange)
     }
 
     // MARK: - Server RPCs
@@ -32,16 +51,21 @@ distributed actor RaftNode {
         var success: Bool
     }
 
+    // TODO: check if discardableResult is justified
+    @discardableResult
     public distributed func appendEntries(
         term: Int,
-        leaderId: Int,
+        leaderId: ActorSystem.ActorID,
         prevLogIndex: Int,
         prevLogTerm: Int,
         entries: [LogEntry],
         leaderCommit: Int
     ) async throws -> AppendEntriesReturn {
+        actorSystem.log.trace("Received append entries from \(leaderId)")
+        lastHeartbeat = Date()
+
         // TODO: implement
-        return .init(term: 0, success: false)
+        return .init(term: currentTerm, success: true)
     }
 
     struct RequestVoteReturn: Codable, Equatable {
@@ -51,12 +75,34 @@ distributed actor RaftNode {
 
     public distributed func requestVote(
         term: Int,
-        candidateId: Int,
+        candidateId: ActorSystem.ActorID,
         lastLogIndex: Int,
         lastLogTerm: Int
     ) async throws -> RequestVoteReturn {
-        // TODO: implement
-        return .init(term: 0, voteGranted: false)
+        actorSystem.log.trace("Received request vote from \(candidateId)")
+        lastHeartbeat = Date()
+
+        if term < currentTerm {
+            return .init(term: currentTerm, voteGranted: false)
+        }
+
+        if term > currentTerm {
+            actorSystem.log.info("Received higher term, becoming follower")
+            currentTerm = term
+            votedFor = nil
+            state = .follower
+        }
+
+        let canGrantVote =
+            (votedFor == nil || votedFor == candidateId)
+            && isLogAtLeastAsUpToDate(lastLogIndex: lastLogIndex, lastLogTerm: lastLogTerm)
+
+        if canGrantVote {
+            votedFor = candidateId
+            return .init(term: currentTerm, voteGranted: true)
+        }
+
+        return .init(term: currentTerm, voteGranted: false)
     }
 
     // MARK: - Client RPCs
@@ -68,5 +114,163 @@ distributed actor RaftNode {
         return
     }
 
-    // MARK - Internal
+    // MARK: - Internal
+
+    distributed func start() {
+        findPeers()
+        startTimer()
+    }
+
+    private distributed func startTimer() {
+        let task = Task {
+            while !Task.isCancelled {
+                do {
+                    try await self.checkElectionTimeout()
+                    try await Task.sleep(for: .milliseconds(100))
+                } catch {
+                    actorSystem.log.error("Error in timer task: \(error)")
+                }
+            }
+        }
+
+        self.timerTask = task
+    }
+
+    private distributed func checkElectionTimeout() async throws {
+        let now = Date()
+        if now.timeIntervalSince(lastHeartbeat) * 1000 >= Double(electionTimeout) {
+            actorSystem.log.info("Election timeout reached")
+            try await self.startElection()
+        }
+    }
+
+    private func startElection() async throws {
+        actorSystem.log.trace("Starting election")
+        currentTerm += 1
+        state = .candidate
+        votedFor = id
+
+        // Reset election timeout
+        electionTimeout = Int.random(in: config.electionTimeoutRange)
+        lastHeartbeat = Date()
+
+        try await requestVotes()
+    }
+
+    private func requestVotes() async throws {
+        actorSystem.log.trace("Requesting votes, peers: \(peers)")
+
+        let isLeader = try await withThrowingTaskGroup(of: Bool.self) { group in
+            var votes = 0
+
+            for peer in peers {
+                group.addTask {
+                    guard peer.id != self.id else {
+                        return true
+                    }
+                    self.actorSystem.log.trace("Requesting vote from \(peer.id)")
+                    let result = try await peer.requestVote(
+                        term: self.currentTerm, candidateId: self.id, lastLogIndex: self.log.count,
+                        lastLogTerm: self.log.last?.term ?? 0)
+                    self.actorSystem.log.trace(
+                        "Received vote from \(peer.id): \(result.voteGranted)")
+                    return result.voteGranted
+                }
+            }
+
+            for try await vote in group {
+                votes += vote ? 1 : 0
+
+                if votes > majority {
+                    self.actorSystem.log.info("Received majority of votes, becoming leader")
+                    self.state = .leader
+                    return true
+                }
+            }
+            return false
+        }
+
+        if isLeader {
+            startSendingHeartbeats()
+        }
+    }
+
+    private func startSendingHeartbeats() {
+        guard state == .leader else {
+            actorSystem.log.warning("Tried to start heartbeat task in non-leader state")
+            return
+        }
+
+        // TODO: cancel this task when no longer leader
+        let task = Task {
+            while !Task.isCancelled {
+                do {
+                    try await self.sendHeartbeats()
+                    // TODO: make sure to update last heartbeat also when normal append entries are sent
+                    if lastHeartbeat.timeIntervalSinceNow * 1000 < Double(config.heartbeatInterval) {
+                        lastHeartbeat = Date()
+                        try await Task.sleep(for: .milliseconds(config.heartbeatInterval))
+                    }
+                } catch {
+                    actorSystem.log.error("Error in heartbeat task: \(error)")
+                }
+            }
+        }
+
+        self.heartbeatTask = task
+    }
+
+    private func sendHeartbeats() async throws {
+        actorSystem.log.trace("Sending heartbeats")
+        // TODO: this is not done, I should call a separate append entries function 
+        // which makes sure the entries are actually commited or retransmitted.
+        try await peers.concurrentForEach { @Sendable [self] peer in
+            guard peer.id != id else {
+                return
+            }
+            try await peer.appendEntries(
+                term: currentTerm, leaderId: id, prevLogIndex: log.count,
+                prevLogTerm: log.last?.term ?? 0, entries: [], leaderCommit: commitIndex)
+        }
+    }
+
+    private func isLogAtLeastAsUpToDate(lastLogIndex: Int, lastLogTerm: Int) -> Bool {
+        let localLastLogTerm = self.log.last?.term ?? 0
+        let localLastLogIndex = self.log.count
+
+        if lastLogTerm != localLastLogTerm {
+            return lastLogTerm > localLastLogTerm
+        }
+
+        return lastLogIndex >= localLastLogIndex
+    }
+
+    // MARK: - Lifecycle
+
+    func findPeers() {
+        guard listingTask == nil else {
+            actorSystem.log.warning("Already looking for peers")
+            return
+        }
+
+        listingTask = Task {
+            for await peer in await actorSystem.receptionist.listing(of: .raftNode) {
+                actorSystem.log.info("Found peer: \(peer)")
+                peers.insert(peer)
+                watchTermination(of: peer)
+            }
+        }
+    }
+
+    func terminated(actor id: DistributedCluster.ActorID) async {
+        let _ = peers.remove(
+            peers.first(where: { node in
+                node.id == id
+            })!)
+        actorSystem.log.warning("Peer \(id) terminated")
+    }
+
+    deinit {
+        listingTask?.cancel()
+    }
 }

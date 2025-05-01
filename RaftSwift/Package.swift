@@ -7,7 +7,8 @@ let package = Package(
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
-        .package(url: "https://github.com/apple/swift-distributed-actors.git", branch: "main")
+        .package(url: "https://github.com/apple/swift-distributed-actors.git", branch: "main"),
+        .package(url: "https://github.com/happn-app/CollectionConcurrencyKit.git", branch: "taskgroup"),
     ],
     targets: [
         .executableTarget(
@@ -16,6 +17,7 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "DistributedCluster", package: "swift-distributed-actors"),
+                .product(name: "CollectionConcurrencyKit", package: "CollectionConcurrencyKit"),
             ]
         ),
     ]

@@ -1,10 +1,11 @@
+@_exported import CollectionConcurrencyKit
 import ArgumentParser
 import DistributedCluster
 import Foundation
 import Logging
 
 @main
-struct Raft: AsyncParsableCommand {
+final class Raft: AsyncParsableCommand {
     lazy var logger: Logger = Logger(label: "RaftPeer\(id)")
 
     @Option(help: "The ID of this server")
@@ -22,31 +23,32 @@ struct Raft: AsyncParsableCommand {
     @Option(help: "Delay between retry attempts in seconds")
     var retryDelay: Double = 5.0
 
-    mutating func run() async throws {
+    func run() async throws {
         logger.info("Creating node...\nID: \(id)\nPort: \(port)\nPeers: \(peers)")
 
-        let localNode = await ClusterSystem("Node \(id)") { settings in
+        let system = await ClusterSystem("Node \(id)") { settings in
             settings.bindPort = port
             settings.bindHost = "0.0.0.0"
         }
+        let raftNode = RaftNode(actorSystem: system)
 
         logger.info("Local node started. Attempting to connect to peers...")
 
-        for peer in peers {
-            if peer.id == id {
-                continue
-            }
-
-            try await connectToPeerWithRetry(localNode: localNode, peer: peer)
+        try await peers.concurrentForEach { peer in
+            try await self.connectToPeerWithRetry(system: system, peer: peer)
         }
         
-        logger.info("All peer connections established or max retries reached.")
+        logger.info("All peer connections established.")
+
+        print("\n\nStarting raft node...")
+        try await raftNode.start()
+        await system.receptionist.checkIn(raftNode, with: .raftNode)
 
         // Keep the application running
-        try await localNode.terminated
+        try await system.terminated
     }
     
-    private mutating func connectToPeerWithRetry(localNode: ClusterSystem, peer: Peer) async throws {
+    private func connectToPeerWithRetry(system: ClusterSystem, peer: Peer) async throws {
         var retryCount = 0
         var connected = false
         
@@ -60,8 +62,8 @@ struct Raft: AsyncParsableCommand {
                 )
                 
                 // Wait for the peer to join
-                localNode.cluster.join(endpoint: peerAddress)
-                try await localNode.cluster.waitFor(peerAddress, .joining, within: Duration.seconds(retryDelay))
+                system.cluster.join(endpoint: peerAddress)
+                try await system.cluster.waitFor(peerAddress, .joining, within: Duration.seconds(retryDelay))
 
                 logger.notice("Successfully connected to peer \(peer.id) at \(peerAddress)")
                 connected = true
@@ -71,7 +73,7 @@ struct Raft: AsyncParsableCommand {
 
                 if retryCount >= maxRetries {
                     logger.error("Max retry attempts reached for peer \(peer.id). Shutting down local node...")
-                    try localNode.shutdown()
+                    try system.shutdown()
                 }
             }
         }

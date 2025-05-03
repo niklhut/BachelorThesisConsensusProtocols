@@ -35,8 +35,8 @@ distributed actor RaftNode: LifecycleWatch {
     }
 
     // Only used by leader
-    var nextIndex: [Int: Int] = [:]
-    var matchIndex: [Int: Int] = [:]
+    var nextIndex: [ActorSystem.ActorID: Int] = [:]
+    var matchIndex: [ActorSystem.ActorID: Int] = [:]
 
     init(config: RaftConfig = .init(), actorSystem: ActorSystem) {
         self.config = config
@@ -160,13 +160,13 @@ distributed actor RaftNode: LifecycleWatch {
     private func requestVotes() async throws {
         actorSystem.log.trace("Requesting votes, peers: \(peers)")
 
-        let isLeader = try await withThrowingTaskGroup(of: Bool.self) { group in
+        let isElectedLeader = try await withThrowingTaskGroup(of: RequestVoteReturn.self) { group in
             var votes = 0
 
             for peer in peers {
                 group.addTask {
                     guard peer.id != self.id else {
-                        return true
+                        return await .init(term: self.currentTerm, voteGranted: true)
                     }
                     self.actorSystem.log.trace("Requesting vote from \(peer.id)")
                     let result = try await peer.requestVote(
@@ -174,24 +174,80 @@ distributed actor RaftNode: LifecycleWatch {
                         lastLogTerm: self.log.last?.term ?? 0)
                     self.actorSystem.log.trace(
                         "Received vote from \(peer.id): \(result.voteGranted)")
-                    return result.voteGranted
+                    return result
                 }
             }
 
             for try await vote in group {
-                votes += vote ? 1 : 0
+                if vote.term == currentTerm && vote.voteGranted {
+                    votes += 1
+                }
 
                 if votes > majority {
-                    self.actorSystem.log.info("Received majority of votes, becoming leader")
-                    self.state = .leader
                     return true
                 }
             }
             return false
         }
 
-        if isLeader {
+        // Check if is candidate because node might recieve AppendEntries RPC 
+        // from other server which is legitimate leader for current term, which 
+        // invalidates this election.
+        if isElectedLeader && state == .candidate {
+            actorSystem.log.info("Received majority of votes, becoming leader")
+            state = .leader
             startSendingHeartbeats()
+        }
+    }
+
+    private func replicateLog(entries: [LogEntry]) async throws {
+        // TODO: do we actually retry on the snapshotted data or do we retry on the current data?
+        let currentTermSnapshot = currentTerm
+        let prevLogIndexSnapshot = log.count
+        let prevLogTermSnapshot = log.last?.term ?? 0
+        let commitIndexSnapshot = commitIndex
+
+        try await withThrowingTaskGroup(of: (id: ActorSystem.ActorID, result: AppendEntriesReturn).self) { group in
+            var successCount = 0
+
+            for peer in peers {
+                group.addTask {
+                    guard peer.id != self.id else {
+                        return await (id: self.id, result: .init(term: self.currentTerm, success: true))
+                    }
+                    self.actorSystem.log.trace("Requesting vote from \(peer.id)")
+                    let result = try await peer.appendEntries(
+                        term: currentTermSnapshot,
+                        leaderId: self.id,
+                        prevLogIndex: prevLogIndexSnapshot,
+                        prevLogTerm: prevLogTermSnapshot,
+                        entries: entries,
+                        leaderCommit: commitIndexSnapshot)
+                    self.actorSystem.log.trace("Received append entries response from \(peer.id)")
+                    return (id: peer.id, result: result)
+                }
+            }
+    
+            for try await (id, result) in group {
+                if result.term > currentTerm {
+                    actorSystem.log.info("Received higher term, becoming follower")
+                    currentTerm = result.term
+                    votedFor = nil
+                    state = .follower
+                }
+
+                if result.success {
+                    matchIndex[id] = prevLogIndexSnapshot + entries.count
+                    nextIndex[id] = matchIndex[id]! + 1
+                    successCount += 1
+                }
+
+                if successCount > majority {
+                    commitIndex += entries.count
+                    // TODO: apply log entries
+                    return
+                }
+            }
         }
     }
 
@@ -257,6 +313,8 @@ distributed actor RaftNode: LifecycleWatch {
             for await peer in await actorSystem.receptionist.listing(of: .raftNode) {
                 actorSystem.log.info("Found peer: \(peer)")
                 peers.insert(peer)
+                nextIndex[peer.id] = log.count
+                matchIndex[peer.id] = 0
                 watchTermination(of: peer)
             }
         }

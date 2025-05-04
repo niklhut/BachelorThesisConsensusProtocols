@@ -358,7 +358,7 @@ distributed actor RaftNode: LifecycleWatch {
         log.append(contentsOf: entries)
 
         // Create tracker with leader pre-marked as successful
-        let tracker = ReplicationTracker(peerCount: peers.count)
+        let tracker = ReplicationTracker(peerCount: peers.count, majority: majority)
         await tracker.markSuccess(id: id)
         resetElectionTimer()
 

@@ -1,3 +1,5 @@
+import DistributedCluster
+
 enum RaftError: Error {
-    case notLeader
+    case notLeader(leaderId: ClusterSystem.ActorID?)
 }

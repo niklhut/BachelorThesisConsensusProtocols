@@ -42,7 +42,7 @@ distributed actor RaftNode: LifecycleWatch {
     private var currentLeaderId: ActorSystem.ActorID?
 
     private var majority: Int {
-        (peers.count + 1) / 2
+        peers.count / 2 + 1
     }
 
     // Only used by leader

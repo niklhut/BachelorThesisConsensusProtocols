@@ -222,7 +222,10 @@ distributed actor RaftNode: LifecycleWatch {
     ///   - entries: The log entries to append.
     public distributed func appendClientEntries(
         entries: [LogEntryValue]
-    ) async {
+    ) async throws {
+        guard state == .leader else {
+            throw RaftError.notLeader
+        }
         await replicateLog(entries: [LogEntry(term: currentTerm, data: entries)])
     }
 

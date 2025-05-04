@@ -13,7 +13,16 @@ distributed actor RaftNode: LifecycleWatch {
 
     private let config: RaftConfig
 
-    private var state: RaftState = .follower
+    private var state: RaftState = .follower {
+        didSet {
+            if state != .leader {
+                if let heartbeatTask {
+                    heartbeatTask.cancel()
+                    self.heartbeatTask = nil
+                }
+            }
+        }
+    }
     private var currentTerm: Int = 0
     private var votedFor: ActorSystem.ActorID?
     private var log: [LogEntry] = []
@@ -324,6 +333,7 @@ distributed actor RaftNode: LifecycleWatch {
         // Create tracker with leader pre-marked as successful
         let tracker = ReplicationTracker(peerCount: peers.count)
         await tracker.markSuccess(id: id)
+        resetElectionTimer()
 
         // Start a background task for replication coordination
         Task {
@@ -496,17 +506,15 @@ distributed actor RaftNode: LifecycleWatch {
             return
         }
 
-        // TODO: cancel this task when no longer leader
         let task = Task {
             while !Task.isCancelled {
                 do {
-                    await self.sendHeartbeats()
-                    // TODO: make sure to update last heartbeat also when normal append entries are sent
                     if lastHeartbeat.timeIntervalSinceNow * 1000 < Double(config.heartbeatInterval)
                     {
-                        resetElectionTimer()
-                        try await Task.sleep(for: .milliseconds(config.heartbeatInterval))
+                        await self.sendHeartbeats()
                     }
+
+                    try await Task.sleep(for: .milliseconds(config.heartbeatInterval))
                 } catch {
                     actorSystem.log.error("Error in heartbeat task: \(error)")
                 }
@@ -573,5 +581,7 @@ distributed actor RaftNode: LifecycleWatch {
 
     deinit {
         listingTask?.cancel()
+        timerTask?.cancel()
+        heartbeatTask?.cancel()
     }
 }

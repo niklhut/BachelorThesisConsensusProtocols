@@ -306,44 +306,63 @@ distributed actor RaftNode: LifecycleWatch {
     private distributed func requestVotes() async throws {
         actorSystem.log.trace("Requesting votes, peers: \(peers)")
 
-        let isElectedLeader = try await withThrowingTaskGroup(of: RequestVoteReturn.self) { group in
-            var votes = 0
+        var votes = 1  // Count own vote
+        let requiredVotes = majority
 
-            for peer in peers {
+        let currentTermSnapshot = currentTerm
+
+        try await withThrowingTaskGroup(
+            of: (peerId: ActorSystem.ActorID, vote: RequestVoteReturn).self
+        ) { group in
+            for peer in peers where peer.id != self.id {
                 group.addTask {
-                    guard peer.id != self.id else {
-                        return await .init(term: self.currentTerm, voteGranted: true)
-                    }
                     self.actorSystem.log.trace("Requesting vote from \(peer.id)")
                     let result = try await peer.requestVote(
-                        term: self.currentTerm, candidateId: self.id, lastLogIndex: self.log.count,
-                        lastLogTerm: self.log.last?.term ?? 0)
-                    self.actorSystem.log.trace(
-                        "Received vote from \(peer.id): \(result.voteGranted)")
-                    return result
+                        term: currentTermSnapshot,
+                        candidateId: self.id,
+                        lastLogIndex: self.log.count,
+                        lastLogTerm: self.log.last?.term ?? 0
+                    )
+                    return (peer.id, result)
                 }
             }
 
-            for try await vote in group {
-                if vote.term == currentTerm && vote.voteGranted {
+            for try await (peerId, vote) in group {
+                if Task.isCancelled {
+                    break
+                }
+
+                self.actorSystem.log.trace("Received vote from \(peerId): \(vote.voteGranted)")
+
+                // Check if the peer has a higher term
+                if vote.term > currentTermSnapshot {
+                    actorSystem.log.info("Received higher term, becoming follower")
+                    await becomeFollower(newTerm: vote.term, currentLeaderId: peerId)
+                    return
+                }
+
+                // Count votes only if we're still a candidate and in the same term
+                if state == .candidate && vote.term == currentTermSnapshot && vote.voteGranted {
                     votes += 1
-                }
 
-                if votes > majority {
-                    return true
+                    if votes >= requiredVotes {
+                        actorSystem.log.info(
+                            "Received majority of votes (\(votes)/\(peers.count)), becoming leader"
+                        )
+                        state = .leader
+                        startSendingHeartbeats()
+
+                        // Cancel remaining vote collection tasks
+                        group.cancelAll()
+                        return
+                    }
                 }
             }
-            return false
-        }
 
-        // Check if is candidate because node might recieve AppendEntries RPC
-        // from other server which is legitimate leader for current term, which
-        // invalidates this election.
-        if isElectedLeader && state == .candidate {
-            actorSystem.log.info("Received majority of votes, becoming leader")
-            // TODO: become leader function, also needs to update more than just state
-            state = .leader
-            startSendingHeartbeats()
+            if state == .candidate {
+                actorSystem.log.info(
+                    "Election failed, received \(votes)/\(requiredVotes) votes")
+            }
         }
     }
 

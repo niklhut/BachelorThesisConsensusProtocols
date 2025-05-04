@@ -20,6 +20,8 @@ distributed actor RaftNode: LifecycleWatch {
                     heartbeatTask.cancel()
                     self.heartbeatTask = nil
                 }
+            } else if state == .leader {
+                currentLeaderId = id
             }
         }
     }
@@ -37,6 +39,7 @@ distributed actor RaftNode: LifecycleWatch {
     private var listingTask: Task<Void, Never>?
     private var peers: Set<RaftNode> = []
     private var stateMachine: [String: String] = [:]
+    private var currentLeaderId: ActorSystem.ActorID?
 
     private var majority: Int {
         (peers.count + 1) / 2
@@ -90,7 +93,7 @@ distributed actor RaftNode: LifecycleWatch {
 
         if term > currentTerm {
             actorSystem.log.info("Received higher term, becoming follower")
-            await becomeFollower(newTerm: term)
+            await becomeFollower(newTerm: term, currentLeaderId: leaderId)
         }
 
         resetElectionTimer()
@@ -199,7 +202,7 @@ distributed actor RaftNode: LifecycleWatch {
 
         if term > currentTerm {
             actorSystem.log.info("Received higher term, becoming follower")
-            await becomeFollower(newTerm: term)
+            await becomeFollower(newTerm: term, currentLeaderId: candidateId)
         }
 
         let canGrantVote =
@@ -220,11 +223,12 @@ distributed actor RaftNode: LifecycleWatch {
     ///
     /// - Parameters:
     ///   - entries: The log entries to append.
+    /// - Throws: RaftError.notLeader if the node is not the leader.
     public distributed func appendClientEntries(
         entries: [LogEntryValue]
     ) async throws {
         guard state == .leader else {
-            throw RaftError.notLeader
+            throw RaftError.notLeader(leaderId: currentLeaderId)
         }
         await replicateLog(entries: [LogEntry(term: currentTerm, data: entries)])
     }
@@ -233,8 +237,13 @@ distributed actor RaftNode: LifecycleWatch {
     ///
     /// - Parameter key: The key to get the value for.
     /// - Returns: The value for the given key.
-    public distributed func getStateValue(key: String) async -> String? {
-        // TODO: should only the leader return this?
+    /// - Throws: RaftError.notLeader if the node is not the leader.
+    public distributed func getStateValue(
+        key: String
+    ) async throws -> String? {
+        guard state == .leader else {
+            throw RaftError.notLeader(leaderId: currentLeaderId)
+        }
         return stateMachine[key]
     }
 
@@ -277,6 +286,7 @@ distributed actor RaftNode: LifecycleWatch {
         currentTerm += 1
         state = .candidate
         votedFor = id
+        currentLeaderId = nil
 
         // Reset election timeout
         electionTimeout = Int.random(in: config.electionTimeoutRange)
@@ -441,7 +451,7 @@ distributed actor RaftNode: LifecycleWatch {
                 if result.term > currentTerm {
                     actorSystem.log.info(
                         "Received higher term (\(result.term)), becoming follower")
-                    await becomeFollower(newTerm: result.term)
+                    await becomeFollower(newTerm: result.term, currentLeaderId: peer.id)
                     return
                 }
 
@@ -510,10 +520,11 @@ distributed actor RaftNode: LifecycleWatch {
     /// Let the node become a follower.
     ///
     /// - Parameter newTerm: The new term.
-    private func becomeFollower(newTerm: Int) async {
+    private func becomeFollower(newTerm: Int, currentLeaderId: ActorSystem.ActorID) async {
         self.currentTerm = newTerm
         self.votedFor = nil
         self.state = .follower
+        self.currentLeaderId = currentLeaderId
     }
 
     /// Starts sending heartbeats to all followers.

@@ -7,5 +7,3 @@ struct LogEntry: Codable, Equatable {
     var term: Int
     var data: [LogEntryValue]
 }
-
-    

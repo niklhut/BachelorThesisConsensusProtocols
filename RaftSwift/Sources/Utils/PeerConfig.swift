@@ -16,8 +16,9 @@ public struct PeerConfig: Sendable, ExpressibleByArgument {
     public init?(argument: String) {
         let parts = argument.split(separator: ":")
         guard parts.count == 3,
-              let id = Int(parts[0]),
-              let port = Int(parts[2]) else {
+            let id = Int(parts[0]),
+            let port = Int(parts[2])
+        else {
             return nil
         }
         self.id = id

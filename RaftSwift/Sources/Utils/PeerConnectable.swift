@@ -5,13 +5,13 @@ import Logging
 protocol PeerConnectable {
     /// The list of peers to connect to.
     var peers: [PeerConfig] { get }
-    
+
     /// The maximum number of retry attempts for connecting to peers.
     var maxRetries: Int { get }
-    
+
     /// The delay between retry attempts in seconds.
     var retryDelay: Double { get }
-    
+
     /// The logger for the node.
     var logger: Logger { get }
 
@@ -72,7 +72,7 @@ extension PeerConnectable {
         try await peers.concurrentForEach { peer in
             try await connectToPeerWithRetry(system: system, peer: peer)
         }
-        
+
         logger.info("All peer connections established.")
     }
 }

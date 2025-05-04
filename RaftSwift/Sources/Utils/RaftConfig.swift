@@ -3,5 +3,5 @@ struct RaftConfig {
     let electionTimeoutRange: ClosedRange<Int> = 150...300
 
     /// The interval of heartbeat in milliseconds
-    let heartbeatInterval = 50  
+    let heartbeatInterval = 50
 }

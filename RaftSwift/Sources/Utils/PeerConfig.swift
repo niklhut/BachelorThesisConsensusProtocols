@@ -1,6 +1,6 @@
 import ArgumentParser
 
-public struct Peer: Sendable, ExpressibleByArgument {
+public struct PeerConfig: Sendable, ExpressibleByArgument {
     let id: Int
     let name: String
     let port: Int
@@ -27,9 +27,9 @@ public struct Peer: Sendable, ExpressibleByArgument {
     }
 }
 
-extension Array: @retroactive ExpressibleByArgument where Element == Peer {
+extension Array: @retroactive ExpressibleByArgument where Element == PeerConfig {
     public init?(argument: String) {
         let parts = argument.split(separator: ",")
-        self = parts.compactMap { Peer(argument: String($0)) }
+        self = parts.compactMap { PeerConfig(argument: String($0)) }
     }
 }

@@ -216,8 +216,7 @@ distributed actor RaftNode: LifecycleWatch {
     public distributed func appendClientEntries(
         entries: [LogEntryValue]
     ) async {
-        // TODO: implement
-        return
+        await replicateLog(entries: [LogEntry(term: currentTerm, data: entries)])
     }
 
     // MARK: - Internal

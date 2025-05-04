@@ -1,5 +1,8 @@
 @_exported import CollectionConcurrencyKit
 import ArgumentParser
+import DistributedCluster
+
+typealias DefaultDistributedActorSystem = ClusterSystem
 
 @main
 struct Raft: AsyncParsableCommand {

@@ -9,8 +9,6 @@ extension DistributedReception.Key {
 }
 
 distributed actor RaftNode: LifecycleWatch {
-    typealias ActorSystem = ClusterSystem
-
     // MARK: - Properties
 
     private let config: RaftConfig
@@ -87,7 +85,7 @@ distributed actor RaftNode: LifecycleWatch {
         }
 
         resetElectionTimer()
-        
+
         // Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
         if prevLogIndex > 0 {
             if log.count < prevLogIndex {

@@ -172,13 +172,7 @@ distributed actor RaftNode: LifecycleWatch {
         if leaderCommit > commitIndex {
             commitIndex = min(leaderCommit, log.count)
 
-            // Apply newly committed entries to state machine
-            while lastApplied < commitIndex {
-                lastApplied += 1
-                for value in log[lastApplied - 1].data {
-                    stateMachine[value.key] = value.value
-                }
-            }
+            await applyCommittedEntries()
         }
 
         return AppendEntriesReturn(term: currentTerm, success: true)

@@ -261,6 +261,9 @@ distributed actor RaftNode: LifecycleWatch {
 
     /// Starts the timer task.
     private distributed func startTimer() {
+        // Cancel existing timer if any
+        timerTask?.cancel()
+
         let task = Task {
             while !Task.isCancelled {
                 do {

@@ -334,6 +334,11 @@ distributed actor RaftNode: LifecycleWatch {
     ///
     /// - Parameter entries: The log entries to replicate.
     private func replicateLog(entries: [LogEntry]) async {
+        guard state == .leader else {
+            actorSystem.log.error("Node is not leader, cannot replicate log")
+            return
+        }
+
         let currentTermSnapshot = currentTerm
         let prevLogIndexSnapshot = log.count
         let prevLogTermSnapshot = log.last?.term ?? 0

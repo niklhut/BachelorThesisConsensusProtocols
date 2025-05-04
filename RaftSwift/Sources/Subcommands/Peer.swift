@@ -3,7 +3,7 @@ import DistributedCluster
 import Foundation
 import Logging
 
-final class Peer: AsyncParsableCommand {
+final class Peer: AsyncParsableCommand, PeerConnectable {
     static let configuration = CommandConfiguration(
         commandName: "peer",
         abstract: "Start a peer node"
@@ -37,49 +37,14 @@ final class Peer: AsyncParsableCommand {
 
         logger.info("Local node started. Attempting to connect to peers...")
 
-        try await peers.concurrentForEach { peer in
-            try await self.connectToPeerWithRetry(system: system, peer: peer)
-        }
+        try await connectToPeers(system: system)
         
-        logger.info("All peer connections established.")
-
         print("\n\nStarting raft node...")
         try await raftNode.start()
         await system.receptionist.checkIn(raftNode, with: .raftNode)
 
         // Keep the application running
         try await system.terminated
-    }
-    
-    private func connectToPeerWithRetry(system: ClusterSystem, peer: PeerConfig) async throws {
-        var retryCount = 0
-        var connected = false
-        
-        while !connected && retryCount < maxRetries {
-            do {
-                logger.info("Attempting to connect to peer \(peer.id) at \(peer.name):\(peer.port) (Attempt \(retryCount + 1))")
-                
-                let peerAddress = Cluster.Endpoint(
-                    host: peer.name,
-                    port: peer.port
-                )
-                
-                // Wait for the peer to join
-                system.cluster.join(endpoint: peerAddress)
-                try await system.cluster.waitFor(peerAddress, .joining, within: Duration.seconds(retryDelay))
-
-                logger.notice("Successfully connected to peer \(peer.id) at \(peerAddress)")
-                connected = true
-            } catch {
-                retryCount += 1
-                logger.warning("Failed to connect to peer \(peer.id): \(error.localizedDescription)")
-
-                if retryCount >= maxRetries {
-                    logger.error("Max retry attempts reached for peer \(peer.id). Shutting down local node...")
-                    try system.shutdown()
-                }
-            }
-        }
     }
 }
 

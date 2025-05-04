@@ -20,8 +20,18 @@ distributed actor RaftNode: LifecycleWatch {
                     heartbeatTask.cancel()
                     self.heartbeatTask = nil
                 }
+
+                // Clear leader-specific state when transitioning away from leader
+                self.nextIndex.removeAll()
+                self.matchIndex.removeAll()
             } else if state == .leader {
                 currentLeaderId = id
+
+                // Initialize leader state when becoming leader
+                for peer in peers {
+                    nextIndex[peer.id] = log.count + 1
+                    matchIndex[peer.id] = 0
+                }
             }
         }
     }
@@ -592,8 +602,6 @@ distributed actor RaftNode: LifecycleWatch {
             for await peer in await actorSystem.receptionist.listing(of: .raftNode) {
                 actorSystem.log.info("Found peer: \(peer)")
                 peers.insert(peer)
-                nextIndex[peer.id] = log.count
-                matchIndex[peer.id] = 0
                 watchTermination(of: peer)
             }
         }

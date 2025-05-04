@@ -21,10 +21,10 @@ final class Peer: AsyncParsableCommand {
     var peers: [PeerConfig]
     
     @Option(help: "Maximum retry attempts for connecting to peers")
-    var maxRetries: Int = 10
+    var maxRetries: Int = GlobalConfig.maxRetries
     
     @Option(help: "Delay between retry attempts in seconds")
-    var retryDelay: Double = 5.0
+    var retryDelay: Double = GlobalConfig.retryDelay
 
     func run() async throws {
         logger.info("Creating node...\nID: \(id)\nPort: \(port)\nPeers: \(peers)")

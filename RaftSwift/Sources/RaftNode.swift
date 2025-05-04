@@ -226,6 +226,15 @@ distributed actor RaftNode: LifecycleWatch {
         await replicateLog(entries: [LogEntry(term: currentTerm, data: entries)])
     }
 
+    /// Handles a get state value RPC.
+    ///
+    /// - Parameter key: The key to get the value for.
+    /// - Returns: The value for the given key.
+    public distributed func getStateValue(key: String) async -> String? {
+        // TODO: should only the leader return this?
+        return stateMachine[key]
+    }
+
     // MARK: - Internal
 
     /// Starts the node.

@@ -441,8 +441,12 @@ distributed actor RaftNode: LifecycleWatch {
         commitIndexSnapshot: Int,
         entries: [LogEntry]
     ) async {
+        var retryCount = 0
+
         // Continue trying until successful or no longer leader
-        while state == .leader && currentTerm == currentTermSnapshot {
+        while !Task.isCancelled && state == .leader && currentTerm == currentTermSnapshot
+            && peers.contains(peer)
+        {
             // Check if already successful (another task might have succeeded)
             if await tracker.isSuccessful(id: peer.id) {
                 return
@@ -476,6 +480,10 @@ distributed actor RaftNode: LifecycleWatch {
                     entries: entriesToSend,
                     leaderCommit: commitIndexSnapshot)
 
+                if Task.isCancelled {
+                    return
+                }
+
                 if result.term > currentTerm {
                     actorSystem.log.info(
                         "Received higher term (\(result.term)), becoming follower")
@@ -496,13 +504,17 @@ distributed actor RaftNode: LifecycleWatch {
                     self.actorSystem.log.trace(
                         "Append entries failed for \(peer.id), retrying with earlier index")
                     self.nextIndex[peer.id] = max(1, (self.nextIndex[peer.id] ?? 1) - 1)
-                    // Wait a bit before retrying
-                    try await Task.sleep(for: .milliseconds(50))
+                    retryCount += 1
+
+                    // Wait a bit before retrying with exponential backoff
+                    try await Task.sleep(for: .milliseconds(50 * UInt64(min(16, 1 << retryCount))))
                 }
             } catch {
                 self.actorSystem.log.error("Error replicating to \(peer.id): \(error)")
-                // Wait before retrying
-                try? await Task.sleep(for: .milliseconds(100))
+                retryCount += 1
+                // Wait before retrying with exponential backoff
+                try? await Task.sleep(
+                    for: .milliseconds(100 * UInt64(min(16, 1 << retryCount))))
             }
         }
     }

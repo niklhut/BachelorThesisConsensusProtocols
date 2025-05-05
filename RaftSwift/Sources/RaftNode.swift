@@ -580,6 +580,9 @@ distributed actor RaftNode: LifecycleWatch {
             return
         }
 
+        // Cancel existing heartbeat task if any
+        self.heartbeatTask?.cancel()
+
         let task = Task {
             while !Task.isCancelled {
                 do {

@@ -390,18 +390,20 @@ distributed actor RaftNode: LifecycleWatch {
 
         // Start a background task for replication coordination
         Task {
-            // Start individual replication tasks for each peer
-            for peer in peers where peer.id != id {
-                Task {
-                    await replicateToPeer(
-                        peer: peer,
-                        tracker: tracker,
-                        currentTermSnapshot: currentTermSnapshot,
-                        prevLogIndexSnapshot: prevLogIndexSnapshot,
-                        prevLogTermSnapshot: prevLogTermSnapshot,
-                        commitIndexSnapshot: commitIndexSnapshot,
-                        entries: entries
-                    )
+            await withTaskGroup { group in
+                // Start individual replication tasks for each peer
+                for peer in peers where peer.id != id {
+                    group.addTask {
+                        await self.replicateToPeer(
+                            peer: peer,
+                            tracker: tracker,
+                            currentTermSnapshot: currentTermSnapshot,
+                            prevLogIndexSnapshot: prevLogIndexSnapshot,
+                            prevLogTermSnapshot: prevLogTermSnapshot,
+                            commitIndexSnapshot: commitIndexSnapshot,
+                            entries: entries
+                        )
+                    }
                 }
             }
 

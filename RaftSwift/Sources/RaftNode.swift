@@ -563,7 +563,9 @@ distributed actor RaftNode: LifecycleWatch {
 
     /// Let the node become a follower.
     ///
-    /// - Parameter newTerm: The new term.
+    /// - Parameters:
+    ///   - newTerm: The new term.
+    ///   - currentLeaderId: The ID of the current leader.
     private func becomeFollower(newTerm: Int, currentLeaderId: ActorSystem.ActorID) async {
         self.currentTerm = newTerm
         self.votedFor = nil

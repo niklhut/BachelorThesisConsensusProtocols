@@ -647,11 +647,18 @@ distributed actor RaftNode: LifecycleWatch {
     }
 
     func terminated(actor id: DistributedCluster.ActorID) async {
-        let _ = peers.remove(
-            peers.first(where: { node in
-                node.id == id
-            })!)
-        actorSystem.log.warning("Peer \(id) terminated")
+        // Remove from leader state tracking
+        nextIndex.removeValue(forKey: id)
+        matchIndex.removeValue(forKey: id)
+
+        if let peerToRemove = peers.first(where: { $0.id == id }) {
+            peers.remove(peerToRemove)
+            actorSystem.log.warning("Peer \(id) terminated")
+            // TODO: actually this should not happen, because now we stop 
+            // replicating to an expected peer, which should
+            // happen indefinitely.
+            // We should only remove a node on the raft reconfiguration.
+        }
     }
 
     deinit {

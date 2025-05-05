@@ -4,7 +4,7 @@ actor ReplicationTracker {
     let totalPeers: Int
     let majority: Int
     var successful: Set<ClusterSystem.ActorID> = []
-    var continuation: CheckedContinuation<Void, Never>?
+    var continuations: [CheckedContinuation<Void, Never>] = []
 
     init(peerCount: Int, majority: Int) {
         self.totalPeers = peerCount
@@ -15,20 +15,24 @@ actor ReplicationTracker {
         guard !successful.contains(id) else { return }
         successful.insert(id)
         if successful.count >= majority {
-            continuation?.resume()
-            continuation = nil
+            for cont in continuations {
+                cont.resume()
+            }
+            continuations.removeAll()
         }
     }
 
     func waitForMajority() async {
-        // If we have a majority, return
         if successful.count >= majority {
             return
         }
 
-        // Otherwise wait for majority via continuation
         await withCheckedContinuation { cont in
-            continuation = cont
+            if successful.count >= majority {
+                cont.resume()
+            } else {
+                continuations.append(cont)
+            }
         }
     }
 

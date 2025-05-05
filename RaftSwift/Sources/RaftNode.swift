@@ -528,15 +528,19 @@ distributed actor RaftNode: LifecycleWatch {
         entries: [LogEntry],
         prevLogIndexSnapshot: Int
     ) async {
+        // Add own match index (implicitly the end of the log)
+        var allMatchIndices = self.matchIndex
+        allMatchIndices[self.id] = self.log.count
+
         // Calculate new commit index based on majority match indices
-        let sortedIndices = Array(self.matchIndex.values).sorted()
+        let sortedIndices = Array(allMatchIndices.values).sorted()
         let majorityIndex = sortedIndices[self.majority - 1]
 
         // Only update commit index if it's in the current term
         // (Raft safety requirement: only commit entries from current term)
-        if self.commitIndex + 1 <= majorityIndex {
+        if self.commitIndex < majorityIndex {
             for i in self.commitIndex + 1...majorityIndex {
-                if i < self.log.count && self.log[i].term == self.currentTerm {
+                if i < self.log.count && self.log[i - 1].term == self.currentTerm {
                     self.commitIndex = i
                 }
             }

@@ -108,6 +108,13 @@ distributed actor RaftNode: LifecycleWatch {
 
         resetElectionTimer()
 
+        // First, update commit index
+        if leaderCommit > commitIndex {
+            commitIndex = min(leaderCommit, log.count)
+
+            applyCommittedEntries()
+        }
+
         // Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
         if prevLogIndex > 0 {
             if log.count < prevLogIndex {
@@ -166,13 +173,6 @@ distributed actor RaftNode: LifecycleWatch {
                     log.append(contentsOf: newEntries[newEntriesStartIndex...])
                 }
             }
-        }
-
-        // If leaderCommit > commitIndex, set commitIndex = min(leaderCommit, index of last new entry)
-        if leaderCommit > commitIndex {
-            commitIndex = min(leaderCommit, log.count)
-
-            applyCommittedEntries()
         }
 
         return AppendEntriesReturn(term: currentTerm, success: true)

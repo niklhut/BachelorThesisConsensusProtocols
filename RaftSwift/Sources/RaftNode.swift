@@ -172,7 +172,7 @@ distributed actor RaftNode: LifecycleWatch {
         if leaderCommit > commitIndex {
             commitIndex = min(leaderCommit, log.count)
 
-            await applyCommittedEntries()
+            applyCommittedEntries()
         }
 
         return AppendEntriesReturn(term: currentTerm, success: true)
@@ -547,11 +547,11 @@ distributed actor RaftNode: LifecycleWatch {
         }
 
         // Apply newly committed entries to state machine
-        await self.applyCommittedEntries()
+        self.applyCommittedEntries()
     }
 
     /// Applies the committed entries to the state machine.
-    private func applyCommittedEntries() async {
+    private func applyCommittedEntries() {
         while self.lastApplied < self.commitIndex {
             self.lastApplied += 1
             let entry = self.log[self.lastApplied - 1]

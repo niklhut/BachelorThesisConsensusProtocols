@@ -10,26 +10,6 @@ extension DistributedReception.Key {
     }
 }
 
-enum TestError: Error {
-    case noLeaderAvailable
-    case leaderCrashed
-    case leaderChanged
-}
-
-enum TestType {
-    case correctness
-}
-
-struct TestResult: Codable, Equatable {
-    var totalOperations: Int
-    var successfulOperations: Int
-    var failedOperations: Int
-    var averageLatency: Double // in milliseconds
-    var throughput: Double // operations per second
-    var testDuration: Double // in seconds
-    var description: String
-}
-
 distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
     // MARK: - Properties
 
@@ -181,8 +161,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
             failedOperations: failed,
             averageLatency: averageLatency,
             throughput: throughput,
-            testDuration: testDuration,
-            description: "Basic correctness test completed"
+            testDuration: testDuration
         )
 
         actorSystem.log.info(

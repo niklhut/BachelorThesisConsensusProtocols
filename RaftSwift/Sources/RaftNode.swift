@@ -533,11 +533,10 @@ distributed actor RaftNode: LifecycleWatch {
         let sortedIndices = Array(allMatchIndices.values).sorted()
         let majorityIndex = sortedIndices[majority - 1]
 
-        // TODO: we could improve this by going backwards and checking if the term is the same, this would save us from going through all entries
         // Only update commit index if it's in the current term
         // (Raft safety requirement: only commit entries from current term)
         if commitIndex < majorityIndex {
-            for i in commitIndex + 1 ... majorityIndex {
+            for i in stride(from: majorityIndex, through: commitIndex + 1, by: -1) {
                 if i <= log.count, log[i - 1].term == currentTerm {
                     commitIndex = i
                 }

@@ -245,9 +245,7 @@ distributed actor RaftNode: LifecycleWatch {
     public distributed func getStateValue(
         key: String
     ) async throws -> String? {
-        guard state == .leader else {
-            throw RaftError.notLeader(leaderId: currentLeaderId)
-        }
+        // TODO: leader check or not?
         return stateMachine[key]
     }
 

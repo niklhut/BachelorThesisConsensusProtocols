@@ -32,6 +32,7 @@ final class Peer: AsyncParsableCommand, PeerConnectable {
         let system = await ClusterSystem("Node \(id)") { settings in
             settings.bindPort = port
             settings.bindHost = "0.0.0.0"
+            settings.downingStrategy = .timeout(.default)
         }
         let raftNode = RaftNode(actorSystem: system)
 

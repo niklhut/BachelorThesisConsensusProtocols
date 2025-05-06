@@ -30,12 +30,12 @@ struct TestResult: Codable, Equatable {
     var description: String
 }
 
-distributed actor RaftClient: LifecycleWatch {
+distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
     // MARK: - Properties
 
-    private var peers: [RaftNode] = []
+    var peers: Set<RaftNode> = []
     private var leader: RaftNode?
-    private var listingTask: Task<Void, Never>?
+    var listingTask: Task<Void, Never>?
 
     private var majority: Int {
         peers.count / 2 + 1
@@ -199,29 +199,16 @@ distributed actor RaftClient: LifecycleWatch {
 
     // MARK: - Lifecycle
 
-    private func findPeers() {
-        guard listingTask == nil else {
-            actorSystem.log.warning("Already looking for peers")
-            return
-        }
-
-        listingTask = Task {
-            for await peer in await actorSystem.receptionist.listing(of: .raftNode) {
-                actorSystem.log.info("Found peer: \(peer.id)")
-                peers.append(peer)
-                watchTermination(of: peer)
-            }
-        }
-    }
-
     func terminated(actor id: DistributedCluster.ActorID) async {
-        peers.removeAll { $0.id == id }
+        if let peerToRemove = peers.first(where: { $0.id == id }) {
+            peers.remove(peerToRemove)
+            actorSystem.log.warning("Peer \(id) terminated")
+        }
+
         if leader?.id == id {
             actorSystem.log.warning("Leader node \(id) terminated")
             leader = nil
             await findLeader()
-        } else {
-            actorSystem.log.warning("Peer \(id) terminated")
         }
     }
 

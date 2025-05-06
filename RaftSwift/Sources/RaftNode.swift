@@ -8,7 +8,7 @@ extension DistributedReception.Key {
     }
 }
 
-distributed actor RaftNode: LifecycleWatch {
+distributed actor RaftNode: LifecycleWatch, PeerDiscovery {
     // MARK: - Properties
 
     private let config: RaftConfig
@@ -47,8 +47,8 @@ distributed actor RaftNode: LifecycleWatch {
     private var lastHeartbeat = Date()
     private var timerTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
-    private var listingTask: Task<Void, Never>?
-    private var peers: Set<RaftNode> = []
+    var listingTask: Task<Void, Never>?
+    var peers: Set<RaftNode> = []
     private var stateMachine: [String: String] = [:]
     private var currentLeaderId: ActorSystem.ActorID?
 
@@ -625,22 +625,6 @@ distributed actor RaftNode: LifecycleWatch {
     }
 
     // MARK: - Lifecycle
-
-    /// Continuously finds all peers in the cluster.
-    func findPeers() {
-        guard listingTask == nil else {
-            actorSystem.log.warning("Already looking for peers")
-            return
-        }
-
-        listingTask = Task {
-            for await peer in await actorSystem.receptionist.listing(of: .raftNode) {
-                actorSystem.log.info("Found peer: \(peer)")
-                peers.insert(peer)
-                watchTermination(of: peer)
-            }
-        }
-    }
 
     func terminated(actor id: DistributedCluster.ActorID) async {
         // Remove from leader state tracking

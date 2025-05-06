@@ -24,6 +24,15 @@ final class Client: AsyncParsableCommand, PeerConnectable {
     @Flag(help: "Run basic correctness test")
     var correctnessTest: Bool = false
 
+    @Flag(help: "Run stress test")
+    var stressTest: Bool = false
+
+    @Option(help: "Number of operations for stress test")
+    var operations: Int = 1000
+
+    @Option(help: "Concurrency level for stress test")
+    var concurrency: Int = 10
+
     func run() async throws {
         logger.info("Creating client...\nPeers: \(peers)")
 
@@ -40,11 +49,19 @@ final class Client: AsyncParsableCommand, PeerConnectable {
 
         // Wait for peer discovery
         logger.info("Waiting for peer discovery...")
-        try await Task.sleep(for: .seconds(5))
 
-        var testsToRun: Set<TestType> = []
+        var testsToRun: Set<RaftClient.TestType> = []
         if correctnessTest {
             testsToRun.insert(.correctness)
+        }
+
+        if stressTest {
+            testsToRun.insert(.stress)
+        }
+
+        if !correctnessTest, !stressTest {
+            logger.error("No test specified, running all tests")
+            testsToRun = Set(RaftClient.TestType.allCases)
         }
 
         // Run the specified tests
@@ -53,9 +70,19 @@ final class Client: AsyncParsableCommand, PeerConnectable {
             case .correctness:
                 logger.info("Starting correctness test...")
                 let result = try await client.runCorrectnessTest()
-                logger.info("Correctness test completed: \(result.description)")
+                logger.info("Correctness test completed.")
                 logger.info(
                     "Success rate: \(Double(result.successfulOperations) / Double(result.totalOperations) * 100)%"
+                )
+
+            case .stress:
+                logger.info("Starting stress test...")
+                let result = try await client.runStressTest(
+                    operations: operations, concurrency: concurrency
+                )
+                logger.info("Stress test completed.")
+                logger.info(
+                    "Throughput: \(result.throughput) ops/sec, Avg Latency: \(result.averageLatency) ms"
                 )
             }
         }

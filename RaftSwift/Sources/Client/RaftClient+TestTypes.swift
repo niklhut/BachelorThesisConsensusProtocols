@@ -20,7 +20,8 @@ extension RaftClient {
         var testDuration: Double
     }
 
-    enum TestType {
+    enum TestType: CaseIterable {
         case correctness
+        case stress
     }
 }

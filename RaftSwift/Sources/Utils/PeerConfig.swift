@@ -10,25 +10,25 @@ public struct PeerConfig: Sendable, ExpressibleByArgument {
         self.id = id
         self.name = name
         self.port = port
-        self.nameIsIPAddress = isIPv4Address(name)
+        nameIsIPAddress = isIPv4Address(name)
     }
 
     public init?(argument: String) {
         let parts = argument.split(separator: ":")
         guard parts.count == 3,
-            let id = Int(parts[0]),
-            let port = Int(parts[2])
+              let id = Int(parts[0]),
+              let port = Int(parts[2])
         else {
             return nil
         }
         self.id = id
-        self.name = String(parts[1])
+        name = String(parts[1])
         self.port = port
-        self.nameIsIPAddress = isIPv4Address(self.name)
+        nameIsIPAddress = isIPv4Address(name)
     }
 }
 
-extension Array: @retroactive ExpressibleByArgument where Element == PeerConfig {
+extension [PeerConfig]: @retroactive ExpressibleByArgument {
     public init?(argument: String) {
         let parts = argument.split(separator: ",")
         self = parts.compactMap { PeerConfig(argument: String($0)) }

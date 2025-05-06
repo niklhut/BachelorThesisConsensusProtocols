@@ -22,8 +22,8 @@ distributed actor RaftNode: LifecycleWatch {
                 }
 
                 // Clear leader-specific state when transitioning away from leader
-                self.nextIndex.removeAll()
-                self.matchIndex.removeAll()
+                nextIndex.removeAll()
+                matchIndex.removeAll()
             } else if state == .leader {
                 currentLeaderId = id
 
@@ -35,6 +35,7 @@ distributed actor RaftNode: LifecycleWatch {
             }
         }
     }
+
     private var currentTerm: Int = 0
     private var votedFor: ActorSystem.ActorID?
     private var log: [LogEntry] = []
@@ -67,7 +68,7 @@ distributed actor RaftNode: LifecycleWatch {
     init(config: RaftConfig = .init(), actorSystem: ActorSystem) {
         self.config = config
         self.actorSystem = actorSystem
-        self.electionTimeout = Int.random(in: config.electionTimeoutRange)
+        electionTimeout = Int.random(in: config.electionTimeoutRange)
     }
 
     // MARK: - Server RPCs
@@ -138,7 +139,7 @@ distributed actor RaftNode: LifecycleWatch {
             var conflict = false
             var conflictIndex = 0
 
-            for i in 0..<newEntries.count {
+            for i in 0 ..< newEntries.count {
                 let entryIndex = prevLogIndex + i + 1
 
                 if entryIndex <= log.count {
@@ -161,7 +162,7 @@ distributed actor RaftNode: LifecycleWatch {
                 // Remove conflicting entry and everything that follows
                 let deleteFromIndex = prevLogIndex + conflictIndex
                 if deleteFromIndex <= log.count {
-                    log.removeSubrange(deleteFromIndex - 1..<log.count)
+                    log.removeSubrange(deleteFromIndex - 1 ..< log.count)
                 }
 
                 // Append the remaining entries from the conflict point
@@ -209,11 +210,7 @@ distributed actor RaftNode: LifecycleWatch {
             await becomeFollower(newTerm: term, currentLeaderId: candidateId)
         }
 
-        let canGrantVote =
-            (votedFor == nil || votedFor == candidateId)
-            && isLogAtLeastAsUpToDate(lastLogIndex: lastLogIndex, lastLogTerm: lastLogTerm)
-
-        if canGrantVote {
+        if votedFor == nil || votedFor == candidateId, isLogAtLeastAsUpToDate(lastLogIndex: lastLogIndex, lastLogTerm: lastLogTerm) {
             votedFor = candidateId
             return .init(term: currentTerm, voteGranted: true)
         }
@@ -246,7 +243,7 @@ distributed actor RaftNode: LifecycleWatch {
         key: String
     ) async throws -> String? {
         // TODO: leader check or not?
-        return stateMachine[key]
+        stateMachine[key]
     }
 
     // MARK: - Internal
@@ -273,7 +270,7 @@ distributed actor RaftNode: LifecycleWatch {
             }
         }
 
-        self.timerTask = task
+        timerTask = task
     }
 
     /// Checks if the election timeout has been reached.
@@ -281,7 +278,7 @@ distributed actor RaftNode: LifecycleWatch {
         let now = Date()
         if now.timeIntervalSince(lastHeartbeat) * 1000 >= Double(electionTimeout) {
             actorSystem.log.info("Election timeout reached")
-            try await self.startElection()
+            try await startElection()
         }
     }
 
@@ -304,7 +301,7 @@ distributed actor RaftNode: LifecycleWatch {
     private distributed func requestVotes() async throws {
         actorSystem.log.trace("Requesting votes, peers: \(peers)")
 
-        var votes = 1  // Count own vote
+        var votes = 1 // Count own vote
         let requiredVotes = majority
 
         let currentTermSnapshot = currentTerm
@@ -340,7 +337,7 @@ distributed actor RaftNode: LifecycleWatch {
                 }
 
                 // Count votes only if we're still a candidate and in the same term
-                if state == .candidate && vote.term == currentTermSnapshot && vote.voteGranted {
+                if state == .candidate, vote.term == currentTermSnapshot, vote.voteGranted {
                     votes += 1
 
                     if votes >= requiredVotes {
@@ -409,10 +406,11 @@ distributed actor RaftNode: LifecycleWatch {
             await tracker.waitForMajority()
 
             // Once majority is achieved, update commit index and apply entries
-            if state == .leader && currentTerm == currentTermSnapshot {
+            if state == .leader, currentTerm == currentTermSnapshot {
                 await updateCommitIndexAndApply(
                     entries: entries,
-                    prevLogIndexSnapshot: prevLogIndexSnapshot)
+                    prevLogIndexSnapshot: prevLogIndexSnapshot
+                )
             }
         }
 
@@ -435,15 +433,15 @@ distributed actor RaftNode: LifecycleWatch {
         tracker: ReplicationTracker,
         currentTermSnapshot: Int,
         prevLogIndexSnapshot: Int,
-        prevLogTermSnapshot: Int,
+        prevLogTermSnapshot _: Int,
         commitIndexSnapshot: Int,
         entries: [LogEntry]
     ) async {
         var retryCount = 0
 
         // Continue trying until successful or no longer leader
-        while !Task.isCancelled && state == .leader && currentTerm == currentTermSnapshot
-            && peers.contains(peer)
+        while !Task.isCancelled, state == .leader, currentTerm == currentTermSnapshot,
+              peers.contains(peer)
         {
             // Check if already successful (another task might have succeeded)
             if await tracker.isSuccessful(id: peer.id) {
@@ -455,15 +453,15 @@ distributed actor RaftNode: LifecycleWatch {
                 let peerPrevLogIndex = peerNextIndex - 1
                 let peerPrevLogTerm =
                     peerPrevLogIndex <= 0
-                    ? 0
-                    : (peerPrevLogIndex <= log.count ? log[peerPrevLogIndex - 1].term : 0)
+                        ? 0
+                        : (peerPrevLogIndex <= log.count ? log[peerPrevLogIndex - 1].term : 0)
 
                 // Calculate entries to send
                 let entriesToSend: [LogEntry]
                 if peerNextIndex <= prevLogIndexSnapshot {
                     // Need to send some previous entries
                     let startIndex = max(0, peerNextIndex - 1)
-                    let previousEntries = Array(log[startIndex..<prevLogIndexSnapshot])
+                    let previousEntries = Array(log[startIndex ..< prevLogIndexSnapshot])
                     entriesToSend = previousEntries + entries
                 } else {
                     entriesToSend = entries
@@ -476,7 +474,8 @@ distributed actor RaftNode: LifecycleWatch {
                     prevLogIndex: peerPrevLogIndex,
                     prevLogTerm: peerPrevLogTerm,
                     entries: entriesToSend,
-                    leaderCommit: commitIndexSnapshot)
+                    leaderCommit: commitIndexSnapshot
+                )
 
                 if Task.isCancelled {
                     return
@@ -492,23 +491,23 @@ distributed actor RaftNode: LifecycleWatch {
                 if result.success {
                     // Successful replication
                     let newMatchIndex = peerPrevLogIndex + entriesToSend.count
-                    self.matchIndex[peer.id] = newMatchIndex
-                    self.nextIndex[peer.id] = newMatchIndex + 1
+                    matchIndex[peer.id] = newMatchIndex
+                    nextIndex[peer.id] = newMatchIndex + 1
 
                     await tracker.markSuccess(id: peer.id)
                     return
                 } else {
                     // Log inconsistency, decrement nextIndex and retry
-                    self.actorSystem.log.trace(
+                    actorSystem.log.trace(
                         "Append entries failed for \(peer.id), retrying with earlier index")
-                    self.nextIndex[peer.id] = max(1, (self.nextIndex[peer.id] ?? 1) - 1)
+                    nextIndex[peer.id] = max(1, (nextIndex[peer.id] ?? 1) - 1)
                     retryCount += 1
 
                     // Wait a bit before retrying with exponential backoff
                     try await Task.sleep(for: .milliseconds(50 * UInt64(min(16, 1 << retryCount))))
                 }
             } catch {
-                self.actorSystem.log.error("Error replicating to \(peer.id): \(error)")
+                actorSystem.log.error("Error replicating to \(peer.id): \(error)")
                 retryCount += 1
                 // Wait before retrying with exponential backoff
                 try? await Task.sleep(
@@ -523,39 +522,39 @@ distributed actor RaftNode: LifecycleWatch {
     ///   - entries: The log entries to apply.
     ///   - prevLogIndexSnapshot: The previous log index snapshot.
     private func updateCommitIndexAndApply(
-        entries: [LogEntry],
-        prevLogIndexSnapshot: Int
+        entries _: [LogEntry],
+        prevLogIndexSnapshot _: Int
     ) async {
         // Add own match index (implicitly the end of the log)
-        var allMatchIndices = self.matchIndex
-        allMatchIndices[self.id] = self.log.count
+        var allMatchIndices = matchIndex
+        allMatchIndices[id] = log.count
 
         // Calculate new commit index based on majority match indices
         let sortedIndices = Array(allMatchIndices.values).sorted()
-        let majorityIndex = sortedIndices[self.majority - 1]
+        let majorityIndex = sortedIndices[majority - 1]
 
         // TODO: we could improve this by going backwards and checking if the term is the same, this would save us from going through all entries
         // Only update commit index if it's in the current term
         // (Raft safety requirement: only commit entries from current term)
-        if self.commitIndex < majorityIndex {
-            for i in self.commitIndex + 1...majorityIndex {
-                if i <= self.log.count && self.log[i - 1].term == self.currentTerm {
-                    self.commitIndex = i
+        if commitIndex < majorityIndex {
+            for i in commitIndex + 1 ... majorityIndex {
+                if i <= log.count, log[i - 1].term == currentTerm {
+                    commitIndex = i
                 }
             }
         }
 
         // Apply newly committed entries to state machine
-        self.applyCommittedEntries()
+        applyCommittedEntries()
     }
 
     /// Applies the committed entries to the state machine.
     private func applyCommittedEntries() {
-        while self.lastApplied < self.commitIndex {
-            self.lastApplied += 1
-            let entry = self.log[self.lastApplied - 1]
+        while lastApplied < commitIndex {
+            lastApplied += 1
+            let entry = log[lastApplied - 1]
             for value in entry.data {
-                self.stateMachine[value.key] = value.value
+                stateMachine[value.key] = value.value
             }
         }
     }
@@ -566,9 +565,9 @@ distributed actor RaftNode: LifecycleWatch {
     ///   - newTerm: The new term.
     ///   - currentLeaderId: The ID of the current leader.
     private func becomeFollower(newTerm: Int, currentLeaderId: ActorSystem.ActorID) async {
-        self.currentTerm = newTerm
-        self.votedFor = nil
-        self.state = .follower
+        currentTerm = newTerm
+        votedFor = nil
+        state = .follower
         self.currentLeaderId = currentLeaderId
     }
 
@@ -580,13 +579,12 @@ distributed actor RaftNode: LifecycleWatch {
         }
 
         // Cancel existing heartbeat task if any
-        self.heartbeatTask?.cancel()
+        heartbeatTask?.cancel()
 
         let task = Task {
             while !Task.isCancelled {
                 do {
-                    if lastHeartbeat.timeIntervalSinceNow * 1000 < Double(config.heartbeatInterval)
-                    {
+                    if lastHeartbeat.timeIntervalSinceNow * 1000 < Double(config.heartbeatInterval) {
                         await self.sendHeartbeats()
                     }
 
@@ -597,7 +595,7 @@ distributed actor RaftNode: LifecycleWatch {
             }
         }
 
-        self.heartbeatTask = task
+        heartbeatTask = task
     }
 
     /// Sends heartbeats to all followers.
@@ -612,8 +610,8 @@ distributed actor RaftNode: LifecycleWatch {
     ///   - lastLogIndex: The index of other node's last log entry.
     ///   - lastLogTerm: The term of other node's last log entry.
     private func isLogAtLeastAsUpToDate(lastLogIndex: Int, lastLogTerm: Int) -> Bool {
-        let localLastLogTerm = self.log.last?.term ?? 0
-        let localLastLogIndex = self.log.count
+        let localLastLogTerm = log.last?.term ?? 0
+        let localLastLogIndex = log.count
 
         if lastLogTerm != localLastLogTerm {
             return lastLogTerm > localLastLogTerm
@@ -653,7 +651,7 @@ distributed actor RaftNode: LifecycleWatch {
         if let peerToRemove = peers.first(where: { $0.id == id }) {
             peers.remove(peerToRemove)
             actorSystem.log.warning("Peer \(id) terminated")
-            // TODO: actually this should not happen, because now we stop 
+            // TODO: actually this should not happen, because now we stop
             // replicating to an expected peer, which should
             // happen indefinitely.
             // We should only remove a node on the raft reconfiguration.

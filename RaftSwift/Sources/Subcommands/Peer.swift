@@ -9,7 +9,7 @@ final class Peer: AsyncParsableCommand, PeerConnectable {
         abstract: "Start a peer node"
     )
 
-    lazy var logger: Logger = Logger(label: "RaftPeer\(id)")
+    lazy var logger: Logger = .init(label: "RaftPeer\(id)")
 
     @Option(help: "The ID of this server")
     var id: Int

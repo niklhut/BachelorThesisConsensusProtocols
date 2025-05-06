@@ -35,7 +35,7 @@ extension PeerConnectable {
         var retryCount = 0
         var connected = false
 
-        while !connected && retryCount < maxRetries {
+        while !connected, retryCount < maxRetries {
             do {
                 logger.info(
                     "Attempting to connect to peer \(peer.id) at \(peer.name):\(peer.port) (Attempt \(retryCount + 1))"
@@ -49,7 +49,8 @@ extension PeerConnectable {
                 // Wait for the peer to join
                 system.cluster.join(endpoint: peerAddress)
                 try await system.cluster.waitFor(
-                    peerAddress, .joining, within: Duration.seconds(retryDelay))
+                    peerAddress, .joining, within: Duration.seconds(retryDelay)
+                )
 
                 logger.notice("Successfully connected to peer \(peer.id) at \(peerAddress)")
                 connected = true

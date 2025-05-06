@@ -7,7 +7,7 @@ actor ReplicationTracker {
     var continuations: [CheckedContinuation<Void, Never>] = []
 
     init(peerCount: Int, majority: Int) {
-        self.totalPeers = peerCount
+        totalPeers = peerCount
         self.majority = majority
     }
 
@@ -37,10 +37,10 @@ actor ReplicationTracker {
     }
 
     func isSuccessful(id: ClusterSystem.ActorID) -> Bool {
-        return successful.contains(id)
+        successful.contains(id)
     }
 
     func getSuccessfulPeers() -> Set<ClusterSystem.ActorID> {
-        return successful
+        successful
     }
 }

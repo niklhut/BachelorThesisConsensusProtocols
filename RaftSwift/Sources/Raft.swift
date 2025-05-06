@@ -1,5 +1,5 @@
-@_exported import CollectionConcurrencyKit
 import ArgumentParser
+@_exported import CollectionConcurrencyKit
 import DistributedCluster
 
 typealias DefaultDistributedActorSystem = ClusterSystem

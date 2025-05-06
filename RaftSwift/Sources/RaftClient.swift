@@ -65,9 +65,8 @@ distributed actor RaftClient: LifecycleWatch {
             return
         }
 
-        // Try to append a no-op entry to each peer
-        // The leader will succeed, followers will fail
-        for peer in peers {
+        while leader == nil {
+            let peer = peers.randomElement()!
             do {
                 try await peer.appendClientEntries(entries: [])
                 if leader?.id != peer.id {
@@ -75,13 +74,15 @@ distributed actor RaftClient: LifecycleWatch {
                     leader = peer
                 }
                 return
+            } catch let RaftError.notLeader(leaderId) where leaderId != nil {
+                actorSystem.log.info("Found new leader: \(leaderId!)")
+                leader = peers.first(where: { $0.id == leaderId })
+                return
             } catch {
                 // Not the leader, continue trying other peers
                 actorSystem.log.trace("Peer \(peer.id) is not the leader: \(error)")
             }
         }
-
-        actorSystem.log.warning("Could not determine leader among \(peers.count) peers")
     }
 
     // MARK: - Test Methods
@@ -111,8 +112,6 @@ distributed actor RaftClient: LifecycleWatch {
 
         // Ensure we have the latest leader
         await findLeader()
-
-        print("\nLeader: \(String(describing: leader?.id))\n")
 
         guard let currentLeader = leader else {
             actorSystem.log.error("No leader available for test")

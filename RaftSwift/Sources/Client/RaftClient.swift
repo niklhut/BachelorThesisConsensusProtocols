@@ -38,30 +38,27 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         actorSystem.cluster.leave()
     }
 
-    // TODO: combine with leader manager
-    /// Find the current leader in the cluster
-    private func findLeader() async {
+    private func ensureLeader() async {
         if peers.isEmpty {
             actorSystem.log.warning("No peers available to determine leader. Waiting before retrying.")
             try? await Task.sleep(for: .seconds(1))
-            return await findLeader()
+            return await ensureLeader()
         }
 
         while leader == nil {
             let peer = peers.randomElement()!
             do {
                 try await peer.appendClientEntries(entries: [])
-                if leader?.id != peer.id {
-                    actorSystem.log.info("Found new leader: \(peer.id)")
-                    leader = peer
+                actorSystem.log.info("Found new leader: \(peer.id)")
+                leader = peer
+                return
+            } catch let RaftError.notLeader(leaderId) {
+                if let leaderId, let newLeader = peers.first(where: { $0.id == leaderId }) {
+                    actorSystem.log.info("Found new leader: \(newLeader.id)")
+                    leader = newLeader
+                    return
                 }
-                return
-            } catch let RaftError.notLeader(leaderId) where leaderId != nil {
-                actorSystem.log.info("Found new leader: \(leaderId!)")
-                leader = peers.first(where: { $0.id == leaderId })
-                return
             } catch {
-                // Not the leader, continue trying other peers
                 actorSystem.log.trace("Peer \(peer.id) is not the leader: \(error)")
             }
         }
@@ -93,7 +90,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         let operations = testValues.count
 
         // Ensure we have the latest leader
-        await findLeader()
+        await ensureLeader()
 
         guard let currentLeader = leader else {
             actorSystem.log.error("No leader available for test")
@@ -149,7 +146,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
                 actorSystem.log.error("Failed to append test value \(testValue.key): \(error)")
 
                 // If we encounter an error, the leader might have changed
-                await findLeader()
+                await ensureLeader()
             }
         }
 
@@ -190,55 +187,12 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         )
         let startTime = Date()
 
-        await findLeader()
-        let leaderManager = LeaderManager(initialLeader: leader, logger: actorSystem.log)
-
-        guard await leaderManager.getLeader() != nil else {
-            actorSystem.log.error("No leader available for test")
-            throw TestError.noLeaderAvailable
-        }
+        await ensureLeader()
 
         // Pre-generate all test values before starting the test
         let baseKeys = (0 ..< 100).map { "stress-key-\($0)" }
         let testValues = (0 ..< operations).map { i in
             LogEntryValue(key: baseKeys[i % baseKeys.count], value: "stress-value-\(i)-\(UUID().uuidString)")
-        }
-
-        // Function to execute a single operation with leader failover handling
-        func executeOperation(_ value: LogEntryValue) async -> (success: Bool, latency: Double) {
-            // TODO: recursive call instead
-            let operationStart = Date()
-
-            do {
-                guard let currentLeader = await leaderManager.getLeader() else {
-                    return (false, 0)
-                }
-
-                try await currentLeader.appendClientEntries(entries: [value])
-                let latency = Date().timeIntervalSince(operationStart) * 1000 // Convert to ms
-                return (true, latency)
-            } catch let error as RaftError {
-                // Handle leader change errors
-                if case let .notLeader(newLeaderId) = error {
-                    actorSystem.log.info("Leader changed to \(String(describing: newLeaderId))")
-                    // Find the new leader node
-                    if let newLeaderNode = peers.first(where: { $0.id == newLeaderId }) {
-                        await leaderManager.updateLeader(newLeaderNode)
-
-                        // Retry with new leader
-                        do {
-                            try await newLeaderNode.appendClientEntries(entries: [value])
-                            let totalLatency = Date().timeIntervalSince(operationStart) * 1000
-                            return (true, totalLatency)
-                        } catch {
-                            return (false, 0)
-                        }
-                    }
-                }
-                return (false, 0)
-            } catch {
-                return (false, 0)
-            }
         }
 
         var nextOperationIndex = concurrency
@@ -248,7 +202,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
             // Initialize with 'concurrency' number of tasks
             for i in 0 ..< min(concurrency, operations) {
                 group.addTask {
-                    await executeOperation(testValues[i])
+                    await self.appendEntry(testValues[i])
                 }
             }
 
@@ -274,7 +228,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
                     nextOperationIndex += 1
 
                     group.addTask {
-                        await executeOperation(testValues[nextIndex])
+                        await self.appendEntry(testValues[nextIndex])
                     }
                 }
 
@@ -314,6 +268,38 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         }
     }
 
+    // MARK: - Helpers
+
+    /// Execute a single operation with leader failover handling
+    ///
+    /// - Parameters:
+    ///   - value: The log entry value to append
+    ///   - startTime: The start time of the operation
+    /// - Returns: A tuple containing the success status and latency
+    func appendEntry(
+        _ value: LogEntryValue,
+        startTime: Date = Date()
+    ) async -> (success: Bool, latency: Double) {
+        do {
+            guard let leader else {
+                return (false, 0)
+            }
+
+            try await leader.appendClientEntries(entries: [value])
+            let latency = Date().timeIntervalSince(startTime) * 1000
+            return (true, latency)
+        } catch let RaftError.notLeader(newLeaderId) {
+            actorSystem.log.info("Leader changed to \(String(describing: newLeaderId))")
+            if let newLeader = peers.first(where: { $0.id == newLeaderId }) {
+                leader = newLeader
+                return await appendEntry(value, startTime: startTime)
+            }
+            return (false, 0)
+        } catch {
+            return (false, 0)
+        }
+    }
+
     // MARK: - Lifecycle
 
     func terminated(actor id: DistributedCluster.ActorID) async {
@@ -325,7 +311,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         if leader?.id == id {
             actorSystem.log.warning("Leader node \(id) terminated")
             leader = nil
-            await findLeader()
+            await ensureLeader()
         }
     }
 

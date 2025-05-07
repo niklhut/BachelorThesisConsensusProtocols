@@ -38,6 +38,7 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         actorSystem.cluster.leave()
     }
 
+    // TODO: combine with leader manager
     /// Find the current leader in the cluster
     private func findLeader() async {
         if peers.isEmpty {
@@ -189,98 +190,128 @@ distributed actor RaftClient: LifecycleWatch, PeerDiscovery {
         )
         let startTime = Date()
 
-        var successful = 0
-        var failed = 0
-        var totalLatency = 0.0
-
         await findLeader()
+        let leaderManager = LeaderManager(initialLeader: leader, logger: actorSystem.log)
 
-        guard let currentLeader = leader else {
+        guard await leaderManager.getLeader() != nil else {
             actorSystem.log.error("No leader available for test")
             throw TestError.noLeaderAvailable
         }
 
-        // TODO: have a fixed number of keys but a different value for each operation
-        // Create a reusable set of test values
-        let baseTestValues = (0 ..< 100).map { i in
-            LogEntryValue(key: "stress-key-\(i)", value: "stress-value-\(i)-\(UUID().uuidString)")
+        // Pre-generate all test values before starting the test
+        let baseKeys = (0 ..< 100).map { "stress-key-\($0)" }
+        let testValues = (0 ..< operations).map { i in
+            LogEntryValue(key: baseKeys[i % baseKeys.count], value: "stress-value-\(i)-\(UUID().uuidString)")
         }
 
-        // Run concurrent operations
-        await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
-            for i in 0 ..< operations {
-                group.addTask {
-                    let operationStart = Date()
-                    let testValue = baseTestValues[i % baseTestValues.count]
+        // Function to execute a single operation with leader failover handling
+        func executeOperation(_ value: LogEntryValue) async -> (success: Bool, latency: Double) {
+            // TODO: recursive call instead
+            let operationStart = Date()
 
-                    do {
-                        // TODO: i guess a handle client request helper would be helpful. It should handle leader changes
-                        try await currentLeader.appendClientEntries(entries: [testValue])
-                        let latency = Date().timeIntervalSince(operationStart) * 1000 // Convert to ms
-                        return (true, latency)
-                    } catch {
-                        return (false, 0)
-                    }
+            do {
+                guard let currentLeader = await leaderManager.getLeader() else {
+                    return (false, 0)
                 }
 
-                // Control concurrency level
-                if (i + 1) % concurrency == 0 {
-                    // Wait for all current tasks to complete before adding more
-                    for await result in group {
-                        if result.success {
-                            successful += 1
-                            totalLatency += result.latency
-                        } else {
-                            failed += 1
-                        }
-                    }
+                try await currentLeader.appendClientEntries(entries: [value])
+                let latency = Date().timeIntervalSince(operationStart) * 1000 // Convert to ms
+                return (true, latency)
+            } catch let error as RaftError {
+                // Handle leader change errors
+                if case let .notLeader(newLeaderId) = error {
+                    actorSystem.log.info("Leader changed to \(String(describing: newLeaderId))")
+                    // Find the new leader node
+                    if let newLeaderNode = peers.first(where: { $0.id == newLeaderId }) {
+                        await leaderManager.updateLeader(newLeaderNode)
 
-                    // Check if leader has changed
-                    if failed > successful {
-                        await findLeader()
-                        if let newLeader = leader, newLeader.id != currentLeader.id {
-                            actorSystem.log.info(
-                                "Leader changed during stress test to \(newLeader.id)")
+                        // Retry with new leader
+                        do {
+                            try await newLeaderNode.appendClientEntries(entries: [value])
+                            let totalLatency = Date().timeIntervalSince(operationStart) * 1000
+                            return (true, totalLatency)
+                        } catch {
+                            return (false, 0)
                         }
                     }
+                }
+                return (false, 0)
+            } catch {
+                return (false, 0)
+            }
+        }
+
+        var nextOperationIndex = concurrency
+
+        // Use task group to maintain constant concurrency
+        return await withTaskGroup(of: (success: Bool, latency: Double).self, returning: TestResult.self) { group in
+            // Initialize with 'concurrency' number of tasks
+            for i in 0 ..< min(concurrency, operations) {
+                group.addTask {
+                    await executeOperation(testValues[i])
                 }
             }
 
-            // Collect any remaining results
+            // Process results and maintain concurrency
+            var completed = 0
+            var successful = 0
+            var failed = 0
+            var totalLatency = 0.0
+
             for await result in group {
+                completed += 1
+
                 if result.success {
                     successful += 1
                     totalLatency += result.latency
                 } else {
                     failed += 1
                 }
+
+                // Add a new task if there are operations remaining
+                if nextOperationIndex < operations {
+                    let nextIndex = nextOperationIndex
+                    nextOperationIndex += 1
+
+                    group.addTask {
+                        await executeOperation(testValues[nextIndex])
+                    }
+                }
+
+                if completed == operations {
+                    break
+                }
             }
+
+            // Cancel any remaining tasks (shouldn't be necessary, but just in case)
+            group.cancelAll()
+
+            let testDuration = Date().timeIntervalSince(startTime)
+            let averageLatency = successful > 0 ? totalLatency / Double(successful) : 0
+            let throughput = testDuration > 0 ? Double(successful) / testDuration : 0
+
+            let result = TestResult(
+                totalOperations: operations,
+                successfulOperations: successful,
+                failedOperations: failed,
+                averageLatency: averageLatency,
+                throughput: throughput,
+                testDuration: testDuration
+            )
+
+            actorSystem.log.info(
+                """
+                Stress Test Results:
+                - Success Rate: \(successful)/\(operations) (\(Double(successful) / Double(operations) * 100)%)
+                - Average Latency: \(averageLatency) ms
+                - Throughput: \(throughput) ops/sec
+                - Duration: \(testDuration) seconds
+                - Concurrency Level: \(concurrency)
+                """
+            )
+
+            return result
         }
-
-        let testDuration = Date().timeIntervalSince(startTime)
-        let averageLatency = successful > 0 ? totalLatency / Double(successful) : 0
-        let throughput = testDuration > 0 ? Double(successful) / testDuration : 0
-
-        let result = TestResult(
-            totalOperations: operations,
-            successfulOperations: successful,
-            failedOperations: failed,
-            averageLatency: averageLatency,
-            throughput: throughput,
-            testDuration: testDuration,
-        )
-
-        actorSystem.log.info(
-            """
-            Stress Test Results:
-            - Success Rate: \(successful)/\(operations) (\(Double(successful) / Double(operations) * 100)%)
-            - Average Latency: \(averageLatency) ms
-            - Throughput: \(throughput) ops/sec
-            - Duration: \(testDuration) seconds
-            - Concurrency Level: \(concurrency)
-            """)
-
-        return result
     }
 
     // MARK: - Lifecycle

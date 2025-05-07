@@ -50,18 +50,18 @@ final class Client: AsyncParsableCommand, PeerConnectable {
         // Wait for peer discovery
         logger.info("Waiting for peer discovery...")
 
-        var testsToRun: Set<RaftClient.TestType> = []
+        var testsToRun: [RaftClient.TestType] = []
         if correctnessTest {
-            testsToRun.insert(.correctness)
+            testsToRun.append(.correctness)
         }
 
         if stressTest {
-            testsToRun.insert(.stress)
+            testsToRun.append(.stress)
         }
 
         if !correctnessTest, !stressTest {
             logger.error("No test specified, running all tests")
-            testsToRun = Set(RaftClient.TestType.allCases)
+            testsToRun = RaftClient.TestType.allCases
         }
 
         // Run the specified tests

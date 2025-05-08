@@ -1,13 +1,11 @@
 import DistributedCluster
 
 actor ReplicationTracker {
-    let totalPeers: Int
     let majority: Int
     var successful: Set<ClusterSystem.ActorID> = []
     var continuations: [CheckedContinuation<Void, Never>] = []
 
-    init(peerCount: Int, majority: Int) {
-        totalPeers = peerCount
+    init(majority: Int) {
         self.majority = majority
     }
 

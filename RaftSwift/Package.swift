@@ -9,6 +9,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
         .package(url: "https://github.com/apple/swift-distributed-actors.git", branch: "main"),
         .package(url: "https://github.com/happn-app/CollectionConcurrencyKit.git", branch: "taskgroup"),
+        .package(url: "https://github.com/swiftlang/swift-testing.git", branch: "main"),
     ],
     targets: [
         .executableTarget(
@@ -18,6 +19,13 @@ let package = Package(
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),
                 .product(name: "DistributedCluster", package: "swift-distributed-actors"),
                 .product(name: "CollectionConcurrencyKit", package: "CollectionConcurrencyKit"),
+            ]
+        ),
+        .testTarget(
+            name: "RaftTests",
+            dependencies: [
+                .target(name: "Raft"),
+                .product(name: "Testing", package: "swift-testing"),
             ]
         ),
     ]

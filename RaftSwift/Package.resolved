@@ -1,5 +1,5 @@
 {
-  "originHash" : "ae862e9cb29171d39c81464b8a7b85abdcb85d9678a496be7d676d68c806c85c",
+  "originHash" : "e9d9f448c447d8b742adedf291c9f4dbf42c1c6df407fdbe55cb374b4d020f07",
   "pins" : [
     {
       "identity" : "collectionconcurrencykit",
@@ -61,7 +61,7 @@
       "location" : "https://github.com/apple/swift-cluster-membership",
       "state" : {
         "branch" : "main",
-        "revision" : "8e80b60a1b09ca185ca5b81249051e4104b75adb"
+        "revision" : "58ddc0ec1f53650ef709dbf5ffd49fdf0375b9ad"
       }
     },
     {
@@ -79,7 +79,7 @@
       "location" : "https://github.com/apple/swift-distributed-actors.git",
       "state" : {
         "branch" : "main",
-        "revision" : "00d9afa0f544c27a8b875a136bd083af22e6e712"
+        "revision" : "e1a6b441af3ff3f147cf517b5575478e3934e67a"
       }
     },
     {
@@ -182,12 +182,30 @@
       }
     },
     {
+      "identity" : "swift-syntax",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-syntax.git",
+      "state" : {
+        "revision" : "340f8400262d494c7c659cd838223990195d7fed",
+        "version" : "602.0.0-prerelease-2025-04-16"
+      }
+    },
+    {
       "identity" : "swift-system",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system.git",
       "state" : {
         "revision" : "a34201439c74b53f0fd71ef11741af7e7caf01e1",
         "version" : "1.4.2"
+      }
+    },
+    {
+      "identity" : "swift-testing",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/swiftlang/swift-testing.git",
+      "state" : {
+        "branch" : "main",
+        "revision" : "1932a1b4c0899987ea85a80c01b446de39f54737"
       }
     }
   ],

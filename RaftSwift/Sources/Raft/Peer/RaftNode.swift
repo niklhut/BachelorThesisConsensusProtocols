@@ -8,7 +8,7 @@ extension DistributedReception.Key {
     }
 }
 
-distributed actor RaftNode: LifecycleWatch, PeerDiscovery {
+distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
     // MARK: - Properties
 
     private let config: RaftConfig
@@ -73,29 +73,14 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery {
 
     // MARK: - Server RPCs
 
-    struct AppendEntriesReturn: Codable, Equatable {
-        var term: Int
-        var success: Bool
-    }
-
-    /// Handles an append entries RPC.
-    ///
-    /// - Parameters:
-    ///   - term: The term of the leader.
-    ///   - leaderId: The ID of the leader.
-    ///   - prevLogIndex: The index of the previous log entry.
-    ///   - prevLogTerm: The term of the previous log entry.
-    ///   - entries: The log entries to append.
-    ///   - leaderCommit: The index of the last log entry committed by the leader.
-    /// - Returns: The node's term and success of the append entries RPC.
-    public distributed func appendEntries(
+    distributed func appendEntries(
         term: Int,
         leaderId: ActorSystem.ActorID,
         prevLogIndex: Int,
         prevLogTerm: Int,
         entries: [LogEntry],
         leaderCommit: Int
-    ) async -> AppendEntriesReturn {
+    ) async throws -> AppendEntriesReturn {
         actorSystem.log.trace("Received append entries from \(leaderId)")
 
         if term < currentTerm {
@@ -179,25 +164,12 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery {
         return AppendEntriesReturn(term: currentTerm, success: true)
     }
 
-    struct RequestVoteReturn: Codable, Equatable {
-        var term: Int
-        var voteGranted: Bool
-    }
-
-    /// Handles a request vote RPC.
-    ///
-    /// - Parameters:
-    ///   - term: The term of the candidate.
-    ///   - candidateId: The ID of the candidate.
-    ///   - lastLogIndex: The index of the candidate's last log entry.
-    ///   - lastLogTerm: The term of the candidate's last log entry.
-    /// - Returns: The node's term and whether the vote was granted.
     public distributed func requestVote(
         term: Int,
         candidateId: ActorSystem.ActorID,
         lastLogIndex: Int,
         lastLogTerm: Int
-    ) async -> RequestVoteReturn {
+    ) async throws -> RequestVoteReturn {
         actorSystem.log.trace("Received request vote from \(candidateId)")
         resetElectionTimer()
 

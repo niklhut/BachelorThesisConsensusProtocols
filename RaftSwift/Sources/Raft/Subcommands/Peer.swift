@@ -33,6 +33,9 @@ final class Peer: AsyncParsableCommand, PeerConnectable {
             settings.bindPort = port
             settings.bindHost = "0.0.0.0"
             settings.downingStrategy = .timeout(.default)
+            settings.logging.baseLogger = Logger(label: "RaftPeer\(id)") { label in
+                ColoredConsoleLogHandler(label: label)
+            }
         }
         let raftNode = RaftNode(actorSystem: system)
 

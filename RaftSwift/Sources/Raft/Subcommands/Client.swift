@@ -36,7 +36,11 @@ final class Client: AsyncParsableCommand, PeerConnectable {
     func run() async throws {
         logger.info("Creating client...\nPeers: \(peers)")
 
-        let system = await ClusterSystem("Client")
+        let system = await ClusterSystem("Client") { settings in
+            settings.logging.baseLogger = Logger(label: "RaftClient") { label in
+                ColoredConsoleLogHandler(label: label)
+            }
+        }
 
         try await connectToPeers(system: system)
 

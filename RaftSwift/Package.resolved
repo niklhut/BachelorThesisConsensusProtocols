@@ -1,5 +1,5 @@
 {
-  "originHash" : "e9d9f448c447d8b742adedf291c9f4dbf42c1c6df407fdbe55cb374b4d020f07",
+  "originHash" : "cab7ec74e016e3a93cf652b20cd22615e7b4efd7b3b674a1f32a6d0ac89253cf",
   "pins" : [
     {
       "identity" : "collectionconcurrencykit",
@@ -8,6 +8,15 @@
       "state" : {
         "branch" : "taskgroup",
         "revision" : "b2b4dc4b363cf4301586f75d24b9ffe17111a286"
+      }
+    },
+    {
+      "identity" : "rainbow",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/onevcat/Rainbow",
+      "state" : {
+        "revision" : "0c627a4f8a39ef37eadec1ceec02e4a7f55561ac",
+        "version" : "4.1.0"
       }
     },
     {

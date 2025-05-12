@@ -246,6 +246,15 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery {
         stateMachine[key]
     }
 
+    // MARK: - Testing and Debugging RPCs
+
+    /// Handles a get state RPC.
+    ///
+    /// - Returns: The current state of the node.
+    public distributed func getState() async throws -> RaftState {
+        state
+    }
+
     // MARK: - Internal
 
     /// Starts the node.

@@ -92,6 +92,13 @@ final class RaftTests {
         return leader!
     }
 
+    private func findLeaderIndex() async throws -> Int {
+        let leader = try await findLeader()
+        let index = nodes.firstIndex(where: { $0.id == leader.id })
+        try #require(index != nil, "Leader node not found in nodes array")
+        return index!
+    }
+
     // MARK: - Tests
 
     @Test("Leader election")
@@ -163,6 +170,49 @@ final class RaftTests {
         for i in 0 ..< nodes.count where i != leaderIndex {
             let value = try await nodes[i].getStateValue(key: "afterFailover")
             #expect(value == "newLeaderValue", "Entry should be replicated after failover")
+        }
+    }
+
+    @Test("Term propagation")
+    func testTermPropagation() async throws {
+        // Find the current leader
+        let leaderIndex = try await findLeaderIndex()
+
+        // Force multiple elections to increase term
+        for _ in 0 ..< 2 {
+            // Shut down current leader to force a new election
+            try systems[leaderIndex].shutdown()
+            nodes.remove(at: leaderIndex)
+
+            // Wait for a new leader to be elected
+            try await Task.sleep(for: .seconds(2))
+
+            // Find the new leader and verify it has a higher term
+            _ = try await findLeader(excluding: leaderIndex)
+        }
+
+        // Check that term has propagated to all nodes
+        let terms = try await withThrowingTaskGroup(of: (Int, Int).self) { group in
+            let nodes = self.nodes
+            // Collect term from each functioning node
+            for i in 0 ..< nodes.count {
+                group.addTask {
+                    let term = try await nodes[i].getCurrentTerm()
+                    return (i, term)
+                }
+            }
+
+            var results: [(Int, Int)] = []
+            for try await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        // Verify all terms are the same
+        let firstTerm = terms.first?.1 ?? 0
+        for (_, term) in terms {
+            #expect(term == firstTerm, "All nodes should have the same term")
         }
     }
 }

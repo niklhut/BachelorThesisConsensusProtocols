@@ -227,6 +227,10 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
         state
     }
 
+    public distributed func getCurrentTerm() async throws -> Int {
+        currentTerm
+    }
+
     // MARK: - Internal
 
     /// Starts the node.

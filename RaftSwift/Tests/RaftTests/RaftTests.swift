@@ -1,4 +1,5 @@
 import DistributedCluster
+import Logging
 @testable import Raft
 import Testing
 
@@ -7,12 +8,17 @@ final class RaftTests {
     var systems: [ClusterSystem] = []
     var nodes: [RaftNode] = []
 
+    // MARK: - Lifecycle
+
     init() async throws {
         for i in 1 ... 5 {
             // Use randomized base port to allow parallel test execution
             let basePort = Int.random(in: 10000 ... 20000)
             let system = await ClusterSystem("test-node-\(i)") { settings in
                 settings.bindPort = basePort + i
+                settings.logging.baseLogger = Logger(label: "RaftTestNode\(i)") { label in
+                    ColoredConsoleLogHandler(label: label)
+                }
             }
             systems.append(system)
 
@@ -20,6 +26,7 @@ final class RaftTests {
             let testConfig = RaftConfig()
             let node = RaftNode(config: testConfig, actorSystem: system)
             nodes.append(node)
+            try await node.start()
 
             // Register node with receptionist
             await system.receptionist.checkIn(node, with: .raftNode)
@@ -32,8 +39,7 @@ final class RaftTests {
             }
         }
 
-        // Wait for cluster formation
-        try await Task.sleep(for: .milliseconds(500))
+        try await ensureCluster(systems, within: .seconds(10))
     }
 
     deinit {
@@ -45,16 +51,51 @@ final class RaftTests {
         nodes = []
     }
 
-    @Test("Leader election")
-    func testLeaderElection() async throws {
-        // Start all nodes
-        for node in nodes {
-            try await node.start()
+    // MARK: - Helpers
+
+    /// Ensures that all nodes in the cluster are up and running.
+    ///
+    /// - Parameters:
+    ///   - systems: The systems to ensure.
+    ///   - within: The time to wait for the nodes to come up.
+    /// - Throws: An error if the nodes do not come up within the specified time.
+    private func ensureCluster(_ systems: [ClusterSystem], within: Duration) async throws {
+        let nodes = Set(systems.map(\.settings.bindNode))
+
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for system in systems {
+                group.addTask {
+                    try await system.cluster.waitFor(nodes, .up, within: within)
+                }
+            }
+            // loop explicitly to propagagte any error that might have been thrown
+            for try await _ in group {}
+        }
+    }
+
+    /// Finds the leader node.
+    ///
+    /// - Parameter excluding: The index of the node to exclude from the search.
+    /// - Throws: An error if no leader is found.
+    /// - Returns: The leader node.
+    private func findLeader(excluding: Int? = nil) async throws -> RaftNode {
+        var leader: RaftNode?
+
+        for (index, node) in nodes.enumerated() where excluding != index {
+            if try await node.getState() == .leader {
+                leader = node
+                break
+            }
         }
 
-        // Wait for election timeout
-        try await Task.sleep(for: .seconds(2))
+        try #require(leader != nil, "No leader found")
+        return leader!
+    }
 
+    // MARK: - Tests
+
+    @Test("Leader election")
+    func testLeaderElection() async throws {
         // Verify there is exactly one leader
         let leaders = try await withThrowingTaskGroup(of: Bool.self) { group in
             for node in nodes {
@@ -76,14 +117,6 @@ final class RaftTests {
 
     @Test("Log replication")
     func testLogReplication() async throws {
-        // Start all nodes
-        for node in nodes {
-            try await node.start()
-        }
-
-        // Wait for a leader to be elected
-        try await Task.sleep(for: .seconds(2))
-
         // Find the leader
         let leader = try await findLeader()
 
@@ -103,14 +136,6 @@ final class RaftTests {
 
     @Test("Leader failover")
     func testLeaderFailover() async throws {
-        // Start all nodes
-        for node in nodes {
-            try await node.start()
-        }
-
-        // Wait for a leader to be elected
-        try await Task.sleep(for: .seconds(2))
-
         // Find the leader
         let originalLeader = try await findLeader()
         let leaderIndex = nodes.firstIndex { $0.id == originalLeader.id }!
@@ -139,21 +164,5 @@ final class RaftTests {
             let value = try await nodes[i].getStateValue(key: "afterFailover")
             #expect(value == "newLeaderValue", "Entry should be replicated after failover")
         }
-    }
-
-    // Helper to find the current leader
-    private func findLeader(excluding: Int? = nil) async throws -> RaftNode {
-        var leader: RaftNode?
-
-        for (index, node) in nodes.enumerated() {
-            if excluding == index { continue }
-            if try await node.getState() == .leader {
-                leader = node
-                break
-            }
-        }
-
-        try #require(leader != nil, "No leader found")
-        return leader!
     }
 }

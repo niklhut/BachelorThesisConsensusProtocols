@@ -97,7 +97,7 @@ actor RaftNode: RaftNodeRPC {
     private func becomeCandidate() {
         persistentState.currentTerm += 1
         volatileState.state = .candidate
-        persistentState.votedFor = id
+        persistentState.votedFor = persistentState.ownPeer.id
         volatileState.clearCurrentLeaderID()
 
         stopLeading()
@@ -106,7 +106,7 @@ actor RaftNode: RaftNodeRPC {
     /// Let the node become a leader.
     private func becomeLeader() {
         volatileState.state = .leader
-        volatileState.currentLeaderID = id
+        volatileState.currentLeaderID = persistentState.ownPeer.id
 
         for peer in persistentState.peers {
             leaderState.nextIndex[peer.id] = UInt64(persistentState.log.count + 1)

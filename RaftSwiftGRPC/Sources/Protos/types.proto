@@ -1,7 +1,7 @@
 syntax = "proto3";
 package raft;
 
-enum ServerRole {
+enum ServerState {
     FOLLOWER = 0;
     CANDIDATE = 1;
     LEADER = 2;
@@ -16,7 +16,7 @@ message LogEntry {
 
 message PersistentState {
   uint64 current_term = 1;
-  string voted_for = 2;
+  optional uint32 voted_for = 2;
   repeated LogEntry log = 3;
   Snapshot snapshot = 4;
 }
@@ -24,12 +24,12 @@ message PersistentState {
 message VolatileState {
   uint64 commit_index = 1;
   uint64 last_applied = 2;
-  ServerRole role = 3;
+  ServerState state = 3;
 }
 
 message LeaderState {
-  map<string, uint64> next_index = 1;
-  map<string, uint64> match_index = 2;
+  map<uint32, uint64> next_index = 1;
+  map<uint32, uint64> match_index = 2;
 }
 
 message Snapshot {

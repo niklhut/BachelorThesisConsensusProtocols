@@ -5,20 +5,21 @@ import Logging
 actor RaftNode: RaftNodeRPC {
     // MARK: - Properties
 
-    let id: UInt32
+    // TODO: maybe move to volatile state
     let config: RaftConfig
     let logger: Logger
     var lastHeartbeat = Date()
-    var currentLeaderId: UInt32?
+
+    var heartbeatTask: Task<Void, Never>?
 
     var persistentState = Raft_PersistentState()
     var volatileState = Raft_VolatileState()
     var leaderState = Raft_LeaderState()
 
-    init(id: UInt32, config: RaftConfig) {
-        self.id = id
+    init(_ ownPeer: Raft_Peer, config: RaftConfig) {
+        persistentState.ownPeer = ownPeer
         self.config = config
-        logger = Logger(label: "raft.RaftNode.\(id)")
+        logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
     }
 
     // MARK: - Server RPCs
@@ -36,7 +37,7 @@ actor RaftNode: RaftNodeRPC {
 
         if request.term > persistentState.currentTerm {
             logger.info("Received higher term, becoming follower")
-            await becomeFollower(newTerm: request.term, currentLeaderId: request.candidateID)
+            becomeFollower(newTerm: request.term, currentLeaderId: request.candidateID)
         }
 
         if !persistentState.hasVotedFor || persistentState.votedFor == request.candidateID, isLogAtLeastAsUpToDate(lastLogIndex: request.lastLogIndex, lastLogTerm: request.lastLogTerm) {
@@ -66,19 +67,54 @@ actor RaftNode: RaftNodeRPC {
         }
     }
 
-    // MARK: - Internal
+    // MARK: - State Changes
+
+    /// Let the node stop leading.
+    private func stopLeading() {
+        if let heartbeatTask {
+            heartbeatTask.cancel()
+            self.heartbeatTask = nil
+        }
+
+        leaderState = .init()
+    }
 
     /// Let the node become a follower.
     ///
     /// - Parameters:
     ///   - newTerm: The new term.
     ///   - currentLeaderId: The ID of the current leader.
-    private func becomeFollower(newTerm: UInt64, currentLeaderId: UInt32) async {
+    private func becomeFollower(newTerm: UInt64, currentLeaderId: UInt32) {
         persistentState.currentTerm = newTerm
         persistentState.clearVotedFor()
         volatileState.state = .follower
-        self.currentLeaderId = currentLeaderId
+        volatileState.currentLeaderID = currentLeaderId
+
+        stopLeading()
     }
+
+    /// Let the node become a candidate.
+    private func becomeCandidate() {
+        persistentState.currentTerm += 1
+        volatileState.state = .candidate
+        persistentState.votedFor = id
+        volatileState.clearCurrentLeaderID()
+
+        stopLeading()
+    }
+
+    /// Let the node become a leader.
+    private func becomeLeader() {
+        volatileState.state = .leader
+        volatileState.currentLeaderID = id
+
+        for peer in persistentState.peers {
+            leaderState.nextIndex[peer.id] = UInt64(persistentState.log.count + 1)
+            leaderState.matchIndex[peer.id] = 0
+        }
+    }
+
+    // MARK: - Internal
 
     /// Checks if the log is at least as up to date as the given log.
     ///

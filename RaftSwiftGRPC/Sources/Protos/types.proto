@@ -13,6 +13,16 @@ enum ServerState {
     LEADER = 2;
 }
 
+// A peer in the cluster
+message Peer {
+    // ID of the peer
+    uint32 id = 1;
+    // Address of the peer
+    string address = 2;
+    // Port of the peer
+    int32 port = 3;
+}
+
 // A single entry in the replicated log
 message LogEntry {
   // Term when the entry was received by the leader
@@ -38,6 +48,12 @@ message PersistentState {
 
   // Latest snapshot of the state machine
   Snapshot snapshot = 4;
+
+  // The self peer config
+  Peer ownPeer = 5;
+
+  // List of peers in the cluster
+  repeated Peer peers = 6;
 }
 
 // Volatile state maintained in memory
@@ -50,6 +66,9 @@ message VolatileState {
 
   // Current role/state of this server
   ServerState state = 3;
+
+  // ID of the current leader, if this node is a follower
+  optional uint32 current_leader_id = 4;
 }
 
 // Leader-only volatile state tracking next log entry to send to each follower

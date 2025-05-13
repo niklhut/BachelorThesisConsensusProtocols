@@ -1,30 +1,42 @@
 syntax = "proto3";
 package raft;
 
-// Client-facing service for interacting with the key-value store
+// Service for clients to interact with the replicated key-value store
 service RaftClient {
+  // Add or update a key-value pair
   rpc Put(PutRequest) returns (PutResponse);
+
+  // Retrieve a value by key
   rpc Get(GetRequest) returns (GetResponse);
 }
 
-// Put a key-value pair
+// Request to store or update a key-value pair
 message PutRequest {
   string key = 1;
+
+  // Optional: absence implies a delete
   optional string value = 2;
 }
 
+// Response for a Put request
 message PutResponse {
+  // Whether the operation succeeded
   bool success = 1;
+
+  // Optional hint of current leader’s address if request failed
   optional string leader_hint = 2;
 }
 
-// Get the value for a key
+// Request to retrieve a value by key
 message GetRequest {
   string key = 1;
 }
 
+// Response for a Get request
 message GetResponse {
-  string value = 1;
-  bool found = 2;
-  optional string leader_hint = 3;
+  // Value associated with the key, null if not found
+  optional string value = 1;
+
+  // Optional leader hint if this node is not the leader
+  optional string leader_hint = 2;
 }

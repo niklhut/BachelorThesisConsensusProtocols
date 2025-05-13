@@ -48,7 +48,17 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
     private var timerTask: Task<Void, Never>?
     private var heartbeatTask: Task<Void, Never>?
     var listingTask: Task<Void, Never>?
-    var peers: Set<RaftNode> = []
+    var peers: Set<RaftNode> = [] {
+        didSet {
+            let added = peers.subtracting(oldValue)
+            let removed = oldValue.subtracting(peers)
+
+            reachablePeers.formUnion(added)
+            reachablePeers.subtract(removed)
+        }
+    }
+
+    var reachablePeers: Set<RaftNode> = []
     private var stateMachine: [String: String] = [:]
     private var currentLeaderId: ActorSystem.ActorID?
 
@@ -426,7 +436,7 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
 
         // Continue trying until successful or no longer leader
         while !Task.isCancelled, state == .leader, currentTerm == currentTermSnapshot,
-              peers.contains(peer)
+              reachablePeers.contains(peer)
         {
             // Check if already successful (another task might have succeeded)
             if await tracker.isSuccessful(id: peer.id) {
@@ -483,20 +493,19 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
                     return
                 } else {
                     // Log inconsistency, decrement nextIndex and retry
-                    actorSystem.log.trace(
-                        "Append entries failed for \(peer.id), retrying with earlier index")
                     nextIndex[peer.id] = max(1, (nextIndex[peer.id] ?? 1) - 1)
                     retryCount += 1
+                    actorSystem.log.info("Append entries failed for \(peer.id), retrying with earlier index, retrying with index \(nextIndex[peer.id] ?? 0)")
 
                     // Wait a bit before retrying with exponential backoff
-                    try await Task.sleep(for: .milliseconds(50 * UInt64(min(16, 1 << retryCount))))
+                    try await Task.sleep(for: .milliseconds(100 * UInt64(min(64, 1 << retryCount))))
                 }
             } catch {
                 actorSystem.log.error("Error replicating to \(peer.id): \(error)")
                 retryCount += 1
                 // Wait before retrying with exponential backoff
                 try? await Task.sleep(
-                    for: .milliseconds(100 * UInt64(min(16, 1 << retryCount))))
+                    for: .milliseconds(100 * UInt64(min(64, 1 << retryCount))))
             }
         }
     }
@@ -613,11 +622,11 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
 
     func terminated(actor id: DistributedCluster.ActorID) async {
         // Remove from leader state tracking
-        nextIndex.removeValue(forKey: id)
-        matchIndex.removeValue(forKey: id)
+        // nextIndex.removeValue(forKey: id)
+        // matchIndex.removeValue(forKey: id)
 
-        if let peerToRemove = peers.first(where: { $0.id == id }) {
-            peers.remove(peerToRemove)
+        if let peerToRemove = reachablePeers.first(where: { $0.id == id }) {
+            reachablePeers.remove(peerToRemove)
             actorSystem.log.warning("Peer \(id) terminated")
             // TODO: actually this should not happen, because now we stop
             // replicating to an expected peer, which should

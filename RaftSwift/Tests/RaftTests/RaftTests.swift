@@ -215,4 +215,80 @@ final class RaftTests {
             #expect(term == firstTerm, "All nodes should have the same term")
         }
     }
+
+    @Test("Network partition - majority side still operates")
+    func testNetworkPartition() async throws {
+        // Find the leader
+        let leaderIndex = try await findLeaderIndex()
+
+        // Create a partition: minority (2 nodes) and majority (3 nodes)
+        // Ensure leader is in the majority partition
+        let majorityPartition: [Int]
+        let minorityPartition: [Int]
+
+        if leaderIndex < 2 {
+            // Leader in first two nodes, move it to majority partition
+            majorityPartition = [leaderIndex, 3, 4]
+            minorityPartition = [0, 1, 2].filter { $0 != leaderIndex }
+        } else {
+            // Leader already in potential majority partition
+            majorityPartition = [leaderIndex, 3, 4]
+            minorityPartition = [0, 1]
+        }
+
+        try #require(majorityPartition.count == 3, "Majority partition should have 3 nodes")
+        try #require(minorityPartition.count == 2, "Minority partition should have 2 nodes")
+
+        // Simulate network partition by removing connections
+        for majorityIndex in majorityPartition {
+            for minorityIndex in minorityPartition {
+                await systems[majorityIndex].cluster.down(member: systems[minorityIndex].cluster.member)
+                await systems[minorityIndex].cluster.down(member: systems[majorityIndex].cluster.member)
+            }
+        }
+
+        // Check leader is still leader
+        let leader = nodes[leaderIndex]
+        let leaderState = try await leader.getState()
+        try #require(leaderState == .leader, "Leader should still be leader")
+
+        // Add entry to the majority side
+        try await leader.appendClientEntries(entries: [
+            LogEntryValue(key: "partition-test", value: "majority-value"),
+        ])
+
+        // Wait for replication within majority partition
+        try await Task.sleep(for: .seconds(2))
+
+        // Verify the majority side has the entry
+        for majorityIndex in majorityPartition {
+            let value = try await nodes[majorityIndex].getStateValue(key: "partition-test")
+            #expect(value == "majority-value", "Entry should be replicated to majority partition")
+        }
+
+        // Verify no leader in minority partition
+        for idx in minorityPartition {
+            let state = try await nodes[idx].getState()
+            #expect(state != .leader, "Minority partition should not have a leader")
+        }
+
+        // Heal the partition
+        for majorityIndex in majorityPartition {
+            for minorityIndex in minorityPartition {
+                systems[majorityIndex].cluster.join(endpoint: systems[minorityIndex].cluster.node.endpoint)
+                systems[minorityIndex].cluster.join(endpoint: systems[majorityIndex].cluster.node.endpoint)
+            }
+        }
+
+        // Wait for recovery
+        try await Task.sleep(for: .seconds(2))
+
+        await withKnownIssue("New nodes are not updated when entering cluster") {
+            // Verify all nodes eventually get the entry
+            for node in nodes {
+                let value = try await node.getStateValue(key: "partition-test")
+                #expect(value == "majority-value", "Entry should be replicated to all nodes after partition heals")
+            }
+        }
+    }
 }

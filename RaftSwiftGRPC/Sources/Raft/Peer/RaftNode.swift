@@ -55,15 +55,111 @@ actor RaftNode: RaftNodeRPC {
     }
 
     func appendEntries(request: Raft_AppendEntriesRequest, context: ServerContext) async throws -> Raft_AppendEntriesResponse {
-        .with { response in
-            response.term = 0
-            response.success = false
+        logger.trace("Received append entries from \(request.leaderID)")
+        resetElectionTimer()
+
+        if request.term < persistentState.currentTerm {
+            return .with { response in
+                response.term = persistentState.currentTerm
+                response.success = false
+            }
+        }
+
+        if request.term > persistentState.currentTerm {
+            logger.info("Received higher term, becoming follower")
+            becomeFollower(newTerm: request.term, currentLeaderId: request.leaderID)
+        }
+
+        // First, update commit index
+        if request.leaderCommit > volatileState.commitIndex {
+            volatileState.commitIndex = min(request.leaderCommit, UInt64(persistentState.log.count))
+
+            applyCommittedEntries()
+        }
+
+        // Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
+        if request.prevLogIndex > 0 {
+            if persistentState.log.count < request.prevLogIndex {
+                logger.info("Log is too short, not matching prevLogIndex")
+                return .with { response in
+                    response.term = persistentState.currentTerm
+                    response.success = false
+                }
+            }
+
+            let prevLogTerm = persistentState.log[Int(request.prevLogIndex) - 1].term
+            if prevLogTerm != request.prevLogTerm {
+                // Term mismatch at the expected previous index
+                logger.info("Term mismatch at the expected previous index")
+                return .with { response in
+                    response.term = persistentState.currentTerm
+                    response.success = false
+                }
+            }
+        }
+
+        // If an existing entry conflicts with a new one (same index but different terms),
+        // delete the existing entry and all that follow it
+        // Append any new entries not already in the log
+        let newEntries = request.entries
+        var conflictIndex: Int? = nil
+
+        for i in 0 ..< newEntries.count {
+            let entryIndex = Int(request.prevLogIndex) + i + 1
+
+            if entryIndex <= persistentState.log.count {
+                // This is an existing entry in our log - check for conflict
+                let existingTerm = persistentState.log[entryIndex - 1].term
+                let newTerm = newEntries[i].term
+
+                if existingTerm != newTerm {
+                    // Found a conflict - different term for same index
+                    logger.info("Found a conflict - different term for same index at \(entryIndex)")
+                    conflictIndex = i
+                    break
+                }
+
+                // Entry matches, will be replicated correctly
+            } else {
+                // We've reached the end of our log - remaining entries are new
+                break
+            }
+        }
+
+        if let conflictIndex {
+            // Remove conflicting entry and everything that follows
+            let deleteFromIndex = Int(request.prevLogIndex) + conflictIndex
+            persistentState.log.removeSubrange(deleteFromIndex - 1 ..< persistentState.log.count)
+
+            // Append new entries
+            persistentState.log.append(contentsOf: newEntries[conflictIndex...])
+        } else {
+            // No conflict - append all new entries
+            let newEntriesStartIndex = max(0, persistentState.log.count - Int(request.prevLogIndex))
+            if newEntriesStartIndex < newEntries.count {
+                persistentState.log.append(contentsOf: newEntries[newEntriesStartIndex...])
+            }
+        }
+
+        return .with { response in
+            response.term = persistentState.currentTerm
+            response.success = true
         }
     }
 
     func installSnapshot(request: Raft_InstallSnapshotRequest, context: ServerContext) async throws -> Raft_InstallSnapshotResponse {
         .with { response in
             response.term = 0
+        }
+    }
+
+    // MARK: - Log Replication
+
+    private func applyCommittedEntries() {
+        while volatileState.lastApplied < volatileState.commitIndex {
+            let entry = persistentState.log[Int(volatileState.lastApplied)]
+            persistentState.stateMachine[entry.key] = entry.value
+            volatileState.lastApplied += 1
         }
     }
 

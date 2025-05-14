@@ -46,14 +46,17 @@ message PersistentState {
   // Log entries, each containing a command for the state machine
   repeated LogEntry log = 3;
 
+  // State machine state
+  map<string, string> state_machine = 4;
+
   // Latest snapshot of the state machine
-  Snapshot snapshot = 4;
+  Snapshot snapshot = 5;
 
   // The self peer config
-  Peer ownPeer = 5;
+  Peer ownPeer = 6;
 
   // List of peers in the cluster
-  repeated Peer peers = 6;
+  repeated Peer peers = 7;
 }
 
 // Volatile state maintained in memory
@@ -88,6 +91,6 @@ message Snapshot {
   // Term of last log entry included in the snapshot
   uint64 last_included_term = 2;
 
-  // Serialized key-value state
-  map<string, bytes> kv_state = 3;
+  // State machine state
+  map<string, string> state_machine = 3;
 }

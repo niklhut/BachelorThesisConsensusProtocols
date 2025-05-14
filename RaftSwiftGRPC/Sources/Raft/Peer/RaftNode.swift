@@ -5,7 +5,7 @@ import Logging
 actor RaftNode: RaftNodeRPC {
     // MARK: - Properties
 
-    // TODO: maybe move to volatile state
+    // TODO: maybe move to persistent state
     let config: RaftConfig
     let logger: Logger
     var lastHeartbeat = Date()

@@ -101,43 +101,45 @@ actor RaftNode: RaftNodeRPC {
         // If an existing entry conflicts with a new one (same index but different terms),
         // delete the existing entry and all that follow it
         // Append any new entries not already in the log
-        let newEntries = request.entries
-        var conflictIndex: Int? = nil
+        if request.entries.count > 0 {
+            let newEntries = request.entries
+            var conflictIndex: Int? = nil
 
-        for i in 0 ..< newEntries.count {
-            let entryIndex = Int(request.prevLogIndex) + i + 1
+            for i in 0 ..< newEntries.count {
+                let entryIndex = Int(request.prevLogIndex) + i + 1
 
-            if entryIndex <= persistentState.log.count {
-                // This is an existing entry in our log - check for conflict
-                let existingTerm = persistentState.log[entryIndex - 1].term
-                let newTerm = newEntries[i].term
+                if entryIndex <= persistentState.log.count {
+                    // This is an existing entry in our log - check for conflict
+                    let existingTerm = persistentState.log[entryIndex - 1].term
+                    let newTerm = newEntries[i].term
 
-                if existingTerm != newTerm {
-                    // Found a conflict - different term for same index
-                    logger.info("Found a conflict - different term for same index at \(entryIndex)")
-                    conflictIndex = i
+                    if existingTerm != newTerm {
+                        // Found a conflict - different term for same index
+                        logger.info("Found a conflict - different term for same index at \(entryIndex)")
+                        conflictIndex = i
+                        break
+                    }
+
+                    // Entry matches, will be replicated correctly
+                } else {
+                    // We've reached the end of our log - remaining entries are new
                     break
                 }
-
-                // Entry matches, will be replicated correctly
-            } else {
-                // We've reached the end of our log - remaining entries are new
-                break
             }
-        }
 
-        if let conflictIndex {
-            // Remove conflicting entry and everything that follows
-            let deleteFromIndex = Int(request.prevLogIndex) + conflictIndex
-            persistentState.log.removeSubrange(deleteFromIndex - 1 ..< persistentState.log.count)
+            if let conflictIndex {
+                // Remove conflicting entry and everything that follows
+                let deleteFromIndex = Int(request.prevLogIndex) + conflictIndex
+                persistentState.log.removeSubrange(deleteFromIndex - 1 ..< persistentState.log.count)
 
-            // Append new entries
-            persistentState.log.append(contentsOf: newEntries[conflictIndex...])
-        } else {
-            // No conflict - append all new entries
-            let newEntriesStartIndex = max(0, persistentState.log.count - Int(request.prevLogIndex))
-            if newEntriesStartIndex < newEntries.count {
-                persistentState.log.append(contentsOf: newEntries[newEntriesStartIndex...])
+                // Append new entries
+                persistentState.log.append(contentsOf: newEntries[conflictIndex...])
+            } else {
+                // No conflict - append all new entries
+                let newEntriesStartIndex = max(0, persistentState.log.count - Int(request.prevLogIndex))
+                if newEntriesStartIndex < newEntries.count {
+                    persistentState.log.append(contentsOf: newEntries[newEntriesStartIndex...])
+                }
             }
         }
 

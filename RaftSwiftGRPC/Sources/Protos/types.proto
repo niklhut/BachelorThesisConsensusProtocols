@@ -1,6 +1,8 @@
 syntax = "proto3";
 package raft;
 
+import "google/protobuf/timestamp.proto";
+
 // Represents the current role of the server in the Raft state machine
 enum ServerState {
     // Passive role; waits for messages from leader
@@ -72,6 +74,12 @@ message VolatileState {
 
   // ID of the current leader, if this node is a follower
   optional uint32 current_leader_id = 4;
+
+  // Last heartbeat time
+  google.protobuf.Timestamp last_heartbeat = 5;
+
+  // Election timeout
+  uint32 election_timeout = 6;
 }
 
 // Leader-only volatile state tracking next log entry to send to each follower

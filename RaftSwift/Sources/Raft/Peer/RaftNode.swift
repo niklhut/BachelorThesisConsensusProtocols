@@ -533,6 +533,7 @@ distributed actor RaftNode: LifecycleWatch, PeerDiscovery, RaftNodeRPC {
             for i in stride(from: majorityIndex, through: commitIndex + 1, by: -1) {
                 if i <= log.count, log[i - 1].term == currentTerm {
                     commitIndex = i
+                    break
                 }
             }
         }

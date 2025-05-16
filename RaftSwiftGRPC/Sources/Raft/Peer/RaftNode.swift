@@ -342,7 +342,7 @@ actor RaftNode: RaftNodeRPC {
             // Once majority has replicated the log, update commit index
             // and apply committed entries
             if volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm {
-                await updateCommitIndexAndApply(entries: entries, prevLogIndexSnapshot: persistentStateSnapshot.log.count)
+                await updateCommitIndexAndApply()
             }
         }
 
@@ -467,15 +467,7 @@ actor RaftNode: RaftNodeRPC {
     }
 
     /// Updates the commit index and applies the committed entries to the state machine.
-    ///
-    /// - Parameters:
-    ///   - entries: The log entries to apply.
-    ///   - prevLogIndexSnapshot: The previous log index snapshot.
-    private func updateCommitIndexAndApply(
-        entries _: [Raft_LogEntry],
-        prevLogIndexSnapshot _: Int
-    ) async {
-        // TODO: why are parameters unused?
+    private func updateCommitIndexAndApply() async {
         // Add own match index (implicitly the end of the log)
         var allMatchIndices = leaderState.matchIndex
         allMatchIndices[persistentState.ownPeer.id] = UInt64(persistentState.log.count)

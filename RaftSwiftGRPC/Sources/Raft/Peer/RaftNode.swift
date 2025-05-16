@@ -20,9 +20,10 @@ actor RaftNode: RaftNodeRPC {
         persistentState.peers.count / 2 + 1
     }
 
-    init(_ ownPeer: Raft_Peer, config: RaftConfig) {
+    init(_ ownPeer: Raft_Peer, config: RaftConfig, peers: [Raft_Peer]) {
         persistentState.ownPeer = ownPeer
         self.config = config
+        persistentState.peers = peers
         logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
     }
 
@@ -238,25 +239,29 @@ actor RaftNode: RaftNodeRPC {
 
         let persistentStateSnapshot = persistentState
 
-        try await withThrowingTaskGroup { group in
+        await withTaskGroup { group in
             for peer in persistentState.peers {
                 group.addTask {
                     self.logger.trace("Requesting vote from \(peer.id)")
-                    // TODO: helper method
-                    return try await self.withClient(peer: peer) { client in
-                        let result = try await client.requestVote(.with { voteRequest in
-                            voteRequest.term = persistentStateSnapshot.currentTerm
-                            voteRequest.candidateID = persistentStateSnapshot.ownPeer.id
-                            voteRequest.lastLogIndex = UInt64(persistentStateSnapshot.log.count)
-                            voteRequest.lastLogTerm = persistentStateSnapshot.log.last?.term ?? 0
-                        })
+                    do {
+                        return try await self.withClient(peer: peer) { client in
+                            let result = try await client.requestVote(.with { voteRequest in
+                                voteRequest.term = persistentStateSnapshot.currentTerm
+                                voteRequest.candidateID = persistentStateSnapshot.ownPeer.id
+                                voteRequest.lastLogIndex = UInt64(persistentStateSnapshot.log.count)
+                                voteRequest.lastLogTerm = persistentStateSnapshot.log.last?.term ?? 0
+                            })
 
-                        return (peer.id, result)
+                            return (peer.id, result)
+                        }
+                    } catch {
+                        self.logger.error("Failed to request vote from peer \(peer.id): \(error)")
+                        return (peer.id, Raft_RequestVoteResponse())
                     }
                 }
             }
 
-            for try await (peerId, vote) in group {
+            for await (peerId, vote) in group {
                 if Task.isCancelled {
                     break
                 }
@@ -470,6 +475,7 @@ actor RaftNode: RaftNodeRPC {
         entries _: [Raft_LogEntry],
         prevLogIndexSnapshot _: Int
     ) async {
+        // TODO: why are parameters unused?
         // Add own match index (implicitly the end of the log)
         var allMatchIndices = leaderState.matchIndex
         allMatchIndices[persistentState.ownPeer.id] = UInt64(persistentState.log.count)
@@ -523,11 +529,6 @@ actor RaftNode: RaftNodeRPC {
 
     /// Let the node stop leading.
     private func stopLeading() {
-        if let heartbeatTask {
-            heartbeatTask.cancel()
-            self.heartbeatTask = nil
-        }
-
         leaderState = .init()
     }
 

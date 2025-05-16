@@ -3,10 +3,10 @@
 import PackageDescription
 
 let package = Package(
-    name: "RaftGRPC",
+    name: "Raft",
     platforms: [.macOS(.v15)],
     products: [
-        .executable(name: "RaftGRPC", targets: ["RaftGRPC"]),
+        .executable(name: "Raft", targets: ["Raft"]),
     ],
     dependencies: [
         .package(url: "https://github.com/grpc/grpc-swift.git", from: "2.0.0"),
@@ -19,7 +19,7 @@ let package = Package(
     ],
     targets: [
         .executableTarget(
-            name: "RaftGRPC",
+            name: "Raft",
             dependencies: [
                 .product(name: "GRPCCore", package: "grpc-swift"),
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),

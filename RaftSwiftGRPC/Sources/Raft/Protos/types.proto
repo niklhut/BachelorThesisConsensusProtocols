@@ -22,7 +22,7 @@ message Peer {
     // Address of the peer
     string address = 2;
     // Port of the peer
-    int32 port = 3;
+    uint32 port = 3;
 }
 
 // A single entry in the replicated log

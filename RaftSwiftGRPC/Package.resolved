@@ -1,15 +1,6 @@
 {
-  "originHash" : "57d502534c7f7608436afed034a9ab63102e59b234a5ee560ce52a1d1745616d",
+  "originHash" : "5c491ecab642ddbd2af5c2e1adcb0c9c21cfb93abe15cfadb568d090628f7683",
   "pins" : [
-    {
-      "identity" : "collectionconcurrencykit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/happn-app/CollectionConcurrencyKit.git",
-      "state" : {
-        "branch" : "taskgroup",
-        "revision" : "b2b4dc4b363cf4301586f75d24b9ffe17111a286"
-      }
-    },
     {
       "identity" : "grpc-swift",
       "kind" : "remoteSourceControl",

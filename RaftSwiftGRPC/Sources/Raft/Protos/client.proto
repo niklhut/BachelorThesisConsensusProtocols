@@ -8,6 +8,9 @@ service RaftClient {
 
   // Retrieve a value by key
   rpc Get(GetRequest) returns (GetResponse);
+
+  // Retrieve a value by key, also returns when not a leader
+  rpc GetDebug(GetRequest) returns (GetResponse);
 }
 
 // Request to store or update a key-value pair

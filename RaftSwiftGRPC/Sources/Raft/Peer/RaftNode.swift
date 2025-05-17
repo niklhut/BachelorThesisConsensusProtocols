@@ -453,11 +453,7 @@ actor RaftNode: RaftNodeRPC {
     private func withClient<T: Sendable>(peer: Raft_Peer, _ body: @Sendable @escaping (_ client: Raft_RaftPeer.Client<HTTP2ClientTransport.Posix>) async throws -> T) async throws -> T {
         try await withGRPCClient(
             transport: .http2NIOPosix(
-                // TODO: handel domains
-                target: .ipv4(
-                    host: peer.address,
-                    port: Int(peer.port)
-                ),
+                target: peer.target,
                 transportSecurity: .plaintext
             ),
         ) { client in

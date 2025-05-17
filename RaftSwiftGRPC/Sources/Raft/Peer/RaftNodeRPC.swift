@@ -54,7 +54,59 @@ protocol RaftNodeRPC: Sendable, Actor {
 
     // MARK: - Client RPCs
 
-    // TODO: implement
+    /// Handle the "Put" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Add or update a key-value pair
+    ///
+    /// - Parameters:
+    ///   - request: A `Raft_PutRequest` message.
+    ///   - context: Context providing information about the RPC.
+    /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+    ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+    ///     to an internal error.
+    /// - Returns: A `Raft_PutResponse` to respond with.
+    func put(
+        request: Raft_PutRequest,
+        context: GRPCCore.ServerContext
+    ) async throws -> Raft_PutResponse
+
+    /// Handle the "Get" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Retrieve a value by key
+    ///
+    /// - Parameters:
+    ///   - request: A `Raft_GetRequest` message.
+    ///   - context: Context providing information about the RPC.
+    /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+    ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+    ///     to an internal error.
+    /// - Returns: A `Raft_GetResponse` to respond with.
+    func get(
+        request: Raft_GetRequest,
+        context: GRPCCore.ServerContext
+    ) async throws -> Raft_GetResponse
+
+    /// Handle the "GetDebug" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > Retrieve a value by key, also returns when not a leader
+    ///
+    /// - Parameters:
+    ///   - request: A `Raft_GetRequest` message.
+    ///   - context: Context providing information about the RPC.
+    /// - Throws: Any error which occurred during the processing of the request. Thrown errors
+    ///     of type `RPCError` are mapped to appropriate statuses. All other errors are converted
+    ///     to an internal error.
+    /// - Returns: A `Raft_GetResponse` to respond with.
+    func getDebug(
+        request: Raft_GetRequest,
+        context: GRPCCore.ServerContext
+    ) async throws -> Raft_GetResponse
 
     // MARK: - Admin RPCs
 

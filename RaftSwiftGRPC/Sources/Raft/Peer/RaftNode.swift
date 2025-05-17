@@ -163,7 +163,29 @@ actor RaftNode: RaftNodeRPC {
 
     // MARK: - Client RPCs
 
-    // TODO: implement
+    func put(request: Raft_PutRequest, context: ServerContext) async throws -> Raft_PutResponse {
+        guard volatileState.state == .leader else {
+            // TODO: maybe return a peer struct instead
+            return .init(success: false, leaderHint: String(volatileState.currentLeaderID))
+        }
+
+        try await replicateLog(entries: [Raft_LogEntry(term: persistentState.currentTerm, key: request.key, value: request.value)])
+
+        return .init(success: true)
+    }
+
+    func get(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
+        guard volatileState.state == .leader else {
+            // TODO: maybe return a peer struct instead
+            return .init(leaderHint: String(volatileState.currentLeaderID))
+        }
+
+        return .init(value: persistentState.stateMachine[request.key])
+    }
+
+    func getDebug(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
+        .init(value: persistentState.stateMachine[request.key])
+    }
 
     // MARK: - Admin RPCs
 

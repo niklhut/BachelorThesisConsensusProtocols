@@ -28,7 +28,7 @@ final class Peer: AsyncParsableCommand {
     var retryDelay: Double = GlobalConfig.retryDelay
 
     func run() async throws {
-        let node = RaftNode(Raft_Peer(id: id, address: "", port: port), config: RaftConfig(), peers: peers)
+        let node = RaftNode(Raft_Peer(id: id, address: "0.0.0.0", port: port), config: RaftConfig(), peers: peers)
         let peerService = PeerService(node: node)
 
         let server = GRPCServer(

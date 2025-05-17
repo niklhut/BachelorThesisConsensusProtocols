@@ -14,7 +14,7 @@ let package = Package(
         .package(url: "https://github.com/grpc/grpc-swift-protobuf.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.0.0"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.2.0"),
-
+        .package(url: "https://github.com/swiftlang/swift-testing.git", branch: "main"),
     ],
     targets: [
         .executableTarget(
@@ -28,6 +28,13 @@ let package = Package(
             ],
             plugins: [
                 .plugin(name: "GRPCProtobufGenerator", package: "grpc-swift-protobuf"),
+            ]
+        ),
+        .testTarget(
+            name: "RaftTests",
+            dependencies: [
+                "Raft",
+                .product(name: "Testing", package: "swift-testing"),
             ]
         ),
     ]

@@ -161,6 +161,26 @@ actor RaftNode: RaftNodeRPC {
         }
     }
 
+    // MARK: - Client RPCs
+
+    // TODO: implement
+
+    // MARK: - Admin RPCs
+
+    func getState() async throws -> Raft_ServerStateResponse {
+        .with { response in
+            response.id = persistentState.ownPeer.id
+            response.state = volatileState.state
+        }
+    }
+
+    func getTerm() async throws -> Raft_ServerTermResponse {
+        .with { response in
+            response.id = persistentState.ownPeer.id
+            response.term = persistentState.currentTerm
+        }
+    }
+
     // MARK: - Node Lifecycle
 
     /// Starts the node.

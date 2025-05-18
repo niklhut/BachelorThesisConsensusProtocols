@@ -8,6 +8,7 @@ import Testing
 struct BasicRaftTests: Sendable {
     var peers = [Raft_Peer]()
     var servers: [GRPCServer<HTTP2ServerTransport.Posix>] = .init()
+    var serverTasks: [Task<Void, Error>] = []
 
     let logger = Logger(label: "raft.BasicRaftTests")
 
@@ -41,16 +42,15 @@ struct BasicRaftTests: Sendable {
         }
 
         // Start all servers concurrently but don't wait for them to finish serving
-        Task.detached { [servers] in
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for server in servers {
-                    group.addTask {
-                        try await server.serve()
-                    }
+        for (index, server) in servers.enumerated() {
+            serverTasks.append(Task {
+                do {
+                    try await server.serve()
+                } catch {
+                    print("Server finished serving")
+                    await nodes[index].shutdown()
                 }
-
-                try await group.waitForAll()
-            }
+            })
         }
 
         // Wait for all servers to start listening
@@ -68,13 +68,6 @@ struct BasicRaftTests: Sendable {
 
         try await Task.sleep(for: .seconds(1))
     }
-
-    // deinit {
-    //     // Shutdown all servers
-    //     for server in servers {
-    //         server.beginGracefulShutdown()
-    //     }
-    // }
 
     // MARK: - Helpers
 
@@ -98,6 +91,18 @@ struct BasicRaftTests: Sendable {
 
         try #require(leader != nil, "No leader found")
         return leader!
+    }
+
+    /// Finds the index of the leader node.
+    ///
+    /// - Parameter excluding: The index of the node to exclude from the search.
+    /// - Throws: An error if no leader is found.
+    /// - Returns: The index of the leader node.
+    private func findLeaderIndex(excluding: Int? = nil) async throws -> Int {
+        let leader = try await findLeader(excluding: excluding)
+        let index = peers.firstIndex { $0.id == leader.id }
+        try #require(index != nil, "Leader not found in peers")
+        return index!
     }
 
     /// Executes a block of code with a gRPC client for a specific peer.
@@ -168,6 +173,48 @@ struct BasicRaftTests: Sendable {
                 })
             }
             #expect(getResponse.value == "testValue", "Entry should be replicated to all nodes")
+        }
+    }
+
+    @Test("Leader failover")
+    func testLeaderFailover() async throws {
+        // Find the leader
+        let originalLeaderIndex = try await findLeaderIndex()
+
+        // Simulate leader crash
+        serverTasks[originalLeaderIndex].cancel()
+
+        print("Leader crashed")
+
+        // Wait for new election
+        try await Task.sleep(for: .seconds(1))
+
+        // Find new leader
+        let newLeaderIndex = try await findLeaderIndex(excluding: originalLeaderIndex)
+
+        // Verify new leader is different from old leader
+        #expect(newLeaderIndex != originalLeaderIndex, "A new leader should be elected")
+
+        // Test the new leader can accept writes
+        let putResponse = try await withClient(peer: peers[newLeaderIndex]) { client in
+            try await client.put(.with { request in
+                request.key = "afterFailover"
+                request.value = "newLeaderValue"
+            })
+        }
+        #expect(putResponse.success, "Put should succeed")
+
+        // Wait for replication
+        try await Task.sleep(for: .seconds(1))
+
+        // Verify entry is replicated to all running nodes
+        for i in 0 ..< peers.count where i != originalLeaderIndex {
+            let getResponse = try await withClient(peer: peers[i]) { client in
+                try await client.getDebug(.with { request in
+                    request.key = "afterFailover"
+                })
+            }
+            #expect(getResponse.value == "newLeaderValue", "Entry should be replicated to peer \(peers[i].id) after failover")
         }
     }
 }

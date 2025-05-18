@@ -17,7 +17,7 @@ actor RaftNode: RaftNodeRPC {
     var leaderState = Raft_LeaderState()
 
     var majority: Int {
-        persistentState.peers.count / 2 + 1
+        (persistentState.peers.count + 1) / 2 + 1
     }
 
     init(_ ownPeer: Raft_Peer, config: RaftConfig, peers: [Raft_Peer]) {
@@ -208,6 +208,10 @@ actor RaftNode: RaftNodeRPC {
         startHeartbeatTask()
     }
 
+    func shutdown() {
+        heartbeatTask?.cancel()
+    }
+
     /// Starts the heartbeat task.
     ///
     /// If the node is a leader, it will send heartbeats to all followers.
@@ -357,6 +361,10 @@ actor RaftNode: RaftNodeRPC {
 
         // Create replication tracker with leader pre-marked as successful
         let replicationTracker = ReplicationTracker<UInt32>(majority: majority)
+        logger.trace("Replicating log entries to peers", metadata: [
+            "majority": .stringConvertible(majority),
+            "entries": .stringConvertible(entries),
+        ])
         await replicationTracker.markSuccess(id: persistentStateSnapshot.ownPeer.id)
 
         // Start a background task for replication
@@ -372,17 +380,21 @@ actor RaftNode: RaftNodeRPC {
                             volatileStateSnapshot: volatileStateSnapshot,
                             entries: entries
                         )
+                        print("Replicated log entries to peer: \(peer.id)")
                     }
                 }
-            }
 
-            // Wait for majority of peers to have replicated the log
-            await replicationTracker.waitForMajority()
+                // Wait for majority of peers to have replicated the log
+                await replicationTracker.waitForMajority()
+                logger.trace("Majority of peers have replicated the log", metadata: [
+                    "messageHash": .stringConvertible(entries.hashValue),
+                ])
 
-            // Once majority has replicated the log, update commit index
-            // and apply committed entries
-            if volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm {
-                await updateCommitIndexAndApply()
+                // Once majority has replicated the log, update commit index
+                // and apply committed entries
+                if volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm {
+                    await updateCommitIndexAndApply()
+                }
             }
         }
 
@@ -458,6 +470,11 @@ actor RaftNode: RaftNodeRPC {
 
                 if result.success {
                     await replicationTracker.markSuccess(id: peer.id)
+                    logger.trace("Append entries successful for \(peer.id)", metadata: [
+                        "messageHash": .stringConvertible(entriesToSend.hashValue),
+                        "nextIndex": .stringConvertible(leaderState.nextIndex[peer.id] ?? 0),
+                        "matchIndex": .stringConvertible(leaderState.matchIndex[peer.id] ?? 0),
+                    ])
 
                     let newMatchIndex = peerPrevLogIndex + UInt64(entriesToSend.count)
                     leaderState.matchIndex[peer.id] = newMatchIndex
@@ -468,13 +485,26 @@ actor RaftNode: RaftNodeRPC {
                     // Log inconsistency, decrement nextIndex and retry
                     leaderState.nextIndex[peer.id] = max(1, (leaderState.nextIndex[peer.id] ?? 1) - 1)
                     retryCount += 1
-                    logger.info("Append entries failed for \(peer.id), retrying with earlier index, retrying with index \(leaderState.nextIndex[peer.id] ?? 0)")
+                    logger.info("Append entries failed for \(peer.id), retrying with earlier index, retrying with index \(leaderState.nextIndex[peer.id] ?? 0)", metadata: [
+                        "messageHash": .stringConvertible(entries.hashValue),
+                        "retryCount": .stringConvertible(retryCount),
+                        "nextIndex": .stringConvertible(leaderState.nextIndex[peer.id] ?? 0),
+                    ])
 
                     // Wait a bit before retrying with exponential backoff
                     try await Task.sleep(for: .milliseconds(100 * UInt64(min(64, 1 << retryCount))))
                 }
             } catch {
-                logger.error("Failed to replicate log to \(peer.id): \(error)")
+                let errorMessage: Logger.Message = "Failed to replicate log to \(peer.id): \(error)"
+                let metadata: Logger.Metadata = [
+                    "messageHash": .stringConvertible(entries.hashValue),
+                    "retryCount": .stringConvertible(retryCount),
+                ]
+                if retryCount == 0 {
+                    logger.error(errorMessage, metadata: metadata)
+                } else {
+                    logger.trace(errorMessage, metadata: metadata)
+                }
                 retryCount += 1
 
                 // Wait a bit before retrying with exponential backoff

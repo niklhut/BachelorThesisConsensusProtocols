@@ -217,4 +217,50 @@ struct BasicRaftTests: Sendable {
             #expect(getResponse.value == "newLeaderValue", "Entry should be replicated to peer \(peers[i].id) after failover")
         }
     }
+
+    @Test("Term propagation")
+    mutating func testTermPropagation() async throws {
+        // Find the current leader
+        let leaderIndex = try await findLeaderIndex()
+
+        // Force multiple elections to increase term
+        for _ in 0 ..< 2 {
+            // Shut down current leader to force a new election
+            serverTasks[leaderIndex].cancel()
+            serverTasks.remove(at: leaderIndex)
+            peers.remove(at: leaderIndex)
+
+            // Wait for a new leader to be elected
+            try await Task.sleep(for: .seconds(2))
+
+            // Find the new leader and verify it has a higher term
+            _ = try await findLeader(excluding: leaderIndex)
+        }
+
+        // Check that term has propagated to all nodes
+        let terms = try await withThrowingTaskGroup { group in
+            // Collect term from each functioning node
+            for i in 0 ..< peers.count {
+                group.addTask { [self] in
+                    let term = try await withClient(peer: peers[i]) { client in
+                        try await client.getServerTerm(.init()).term
+                    }
+                    return (i, term)
+                }
+            }
+
+            var results = [(Int, UInt64)]()
+            for try await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        // Verify all terms are the same
+        let firstTerm = terms.first?.1 ?? 0
+        #expect(firstTerm > 2, "Term should be greater than 2 after multiple elections")
+        for (_, term) in terms {
+            #expect(term == firstTerm, "All nodes should have the same term")
+        }
+    }
 }

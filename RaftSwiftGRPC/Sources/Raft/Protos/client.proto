@@ -1,6 +1,9 @@
 syntax = "proto3";
 package raft;
 
+import "google/protobuf/empty.proto";
+import "types.proto";
+
 // Service for clients to interact with the replicated key-value store
 service RaftClient {
   // Add or update a key-value pair
@@ -11,6 +14,12 @@ service RaftClient {
 
   // Retrieve a value by key, also returns when not a leader
   rpc GetDebug(GetRequest) returns (GetResponse);
+
+  // Get the state of a server
+  rpc GetServerState(google.protobuf.Empty) returns (ServerStateResponse) {}
+
+  // Get the term of a server
+  rpc GetServerTerm(google.protobuf.Empty) returns (ServerTermResponse) {}
 }
 
 // Request to store or update a key-value pair
@@ -42,4 +51,22 @@ message GetResponse {
 
   // Optional leader hint if this node is not the leader
   optional string leader_hint = 2;
+}
+
+// Response containing detailed server state
+message ServerStateResponse {
+  // The ID of the server
+  uint32 id = 1;
+
+  // The state of the server
+  ServerState state = 2;
+}
+
+// Response containing the term of the server
+message ServerTermResponse {
+  // The ID of the server
+  uint32 id = 1;
+
+  // The term of the server
+  uint64 term = 2;
 }

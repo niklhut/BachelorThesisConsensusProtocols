@@ -108,8 +108,6 @@ protocol RaftNodeRPC: Sendable, Actor {
         context: GRPCCore.ServerContext
     ) async throws -> Raft_GetResponse
 
-    // MARK: - Admin RPCs
-
     /// Handle the "GetServerState" method.
     ///
     /// > Source IDL Documentation:

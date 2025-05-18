@@ -187,8 +187,6 @@ actor RaftNode: RaftNodeRPC {
         .init(value: persistentState.stateMachine[request.key])
     }
 
-    // MARK: - Admin RPCs
-
     func getState() async throws -> Raft_ServerStateResponse {
         .with { response in
             response.id = persistentState.ownPeer.id

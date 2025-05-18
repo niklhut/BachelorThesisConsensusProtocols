@@ -30,13 +30,14 @@ final class Peer: AsyncParsableCommand {
     func run() async throws {
         let node = RaftNode(Raft_Peer(id: id, address: "0.0.0.0", port: port), config: RaftConfig(), peers: peers)
         let peerService = PeerService(node: node)
+        let clientService = ClientService(node: node)
 
         let server = GRPCServer(
             transport: .http2NIOPosix(
                 address: .ipv4(host: "0.0.0.0", port: Int(port)),
                 transportSecurity: .plaintext
             ),
-            services: [peerService]
+            services: [peerService, clientService]
         )
 
         try await withThrowingTaskGroup(of: Void.self) { group in

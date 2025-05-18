@@ -417,10 +417,10 @@ actor RaftNode: RaftNodeRPC {
             do {
                 let peerNextIndex = leaderState.nextIndex[peer.id] ?? UInt64(persistentStateSnapshot.log.count) + 1
                 let peerPrevLogIndex = peerNextIndex - 1
-                let peerPrevLogTerm = if peerPrevLogIndex <= 0 {
-                    UInt64(0)
+                let peerPrevLogTerm = if peerPrevLogIndex > 0, peerPrevLogIndex <= UInt64(persistentStateSnapshot.log.count) {
+                    persistentStateSnapshot.log[Int(peerPrevLogIndex - 1)].term
                 } else {
-                    persistentStateSnapshot.log[Int(peerPrevLogIndex)].term
+                    UInt64(0)
                 }
 
                 // Calculate entries to send

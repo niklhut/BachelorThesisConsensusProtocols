@@ -380,7 +380,6 @@ actor RaftNode: RaftNodeRPC {
                             volatileStateSnapshot: volatileStateSnapshot,
                             entries: entries
                         )
-                        print("Replicated log entries to peer: \(peer.id)")
                     }
                 }
 

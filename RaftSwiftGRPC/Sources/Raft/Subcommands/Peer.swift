@@ -21,12 +21,6 @@ final class Peer: AsyncParsableCommand {
     @Option(help: "The list of peers in the format 'id:name:port,...'.")
     var peers: [Raft_Peer]
 
-    @Option(help: "Maximum retry attempts for connecting to peers")
-    var maxRetries: Int = GlobalConfig.maxRetries
-
-    @Option(help: "Delay between retry attempts in seconds")
-    var retryDelay: Double = GlobalConfig.retryDelay
-
     func run() async throws {
         let node = RaftNode(Raft_Peer(id: id, address: "0.0.0.0", port: port), config: RaftConfig(), peers: peers)
         let peerService = PeerService(node: node)

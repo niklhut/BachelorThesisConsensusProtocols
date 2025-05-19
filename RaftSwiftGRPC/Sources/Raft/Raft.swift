@@ -7,6 +7,7 @@ struct Raft: AsyncParsableCommand {
         abstract: "Raft distributed system",
         subcommands: [
             Peer.self,
+            Client.self,
         ]
     )
 }

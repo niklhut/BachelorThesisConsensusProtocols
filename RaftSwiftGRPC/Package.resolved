@@ -1,6 +1,15 @@
 {
-  "originHash" : "238d78d3821c2309ede95fb5546666490e08bba0efb6ee9244492759a8d14cce",
+  "originHash" : "e2a145ac8c8c8feada77c4489e9caf203897e065137edb5f39a282d9e3130a8a",
   "pins" : [
+    {
+      "identity" : "console-kit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/vapor/console-kit.git",
+      "state" : {
+        "revision" : "742f624a998cba2a9e653d9b1e91ad3f3a5dff6b",
+        "version" : "4.15.2"
+      }
+    },
     {
       "identity" : "grpc-swift",
       "kind" : "remoteSourceControl",
@@ -204,8 +213,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-syntax.git",
       "state" : {
-        "revision" : "340f8400262d494c7c659cd838223990195d7fed",
-        "version" : "602.0.0-prerelease-2025-04-16"
+        "revision" : "f99ae8aa18f0cf0d53481901f88a0991dc3bd4a2",
+        "version" : "601.0.1"
       }
     },
     {
@@ -222,8 +231,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/swiftlang/swift-testing.git",
       "state" : {
-        "branch" : "main",
-        "revision" : "17c00b09b7d7a25233c379932b2a296a9f2514d9"
+        "revision" : "43b6f88e2f2712e0f2a97e6acc75b55f22234299",
+        "version" : "6.1.0"
       }
     }
   ],

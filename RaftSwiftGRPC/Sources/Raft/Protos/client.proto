@@ -35,8 +35,8 @@ message PutResponse {
   // Whether the operation succeeded
   bool success = 1;
 
-  // Optional hint of current leader’s address if request failed
-  optional string leader_hint = 2;
+  // Optional hint of current leader if request failed
+  optional Peer leader_hint = 2;
 }
 
 // Request to retrieve a value by key
@@ -50,7 +50,7 @@ message GetResponse {
   optional string value = 1;
 
   // Optional leader hint if this node is not the leader
-  optional string leader_hint = 2;
+  optional Peer leader_hint = 2;
 }
 
 // Response containing detailed server state

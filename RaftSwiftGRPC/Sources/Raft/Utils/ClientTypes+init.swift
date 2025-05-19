@@ -9,7 +9,7 @@ extension Raft_PutRequest {
 }
 
 extension Raft_PutResponse {
-    init(success: Bool, leaderHint: String? = nil) {
+    init(success: Bool, leaderHint: Raft_Peer? = nil) {
         self.init()
         self.success = success
         if let leaderHint {
@@ -26,7 +26,7 @@ extension Raft_GetRequest {
 }
 
 extension Raft_GetResponse {
-    init(value: String? = nil, leaderHint: String? = nil) {
+    init(value: String? = nil, leaderHint: Raft_Peer? = nil) {
         self.init()
         if let value {
             self.value = value

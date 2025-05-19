@@ -165,8 +165,7 @@ actor RaftNode: RaftNodeRPC {
 
     func put(request: Raft_PutRequest, context: ServerContext) async throws -> Raft_PutResponse {
         guard volatileState.state == .leader else {
-            // TODO: maybe return a peer struct instead
-            return .init(success: false, leaderHint: String(volatileState.currentLeaderID))
+            return .init(success: false, leaderHint: persistentState.peers.first { $0.id == volatileState.currentLeaderID })
         }
 
         try await replicateLog(entries: [Raft_LogEntry(term: persistentState.currentTerm, key: request.key, value: request.value)])
@@ -176,8 +175,7 @@ actor RaftNode: RaftNodeRPC {
 
     func get(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
         guard volatileState.state == .leader else {
-            // TODO: maybe return a peer struct instead
-            return .init(leaderHint: String(volatileState.currentLeaderID))
+            return .init(leaderHint: persistentState.peers.first { $0.id == volatileState.currentLeaderID })
         }
 
         return .init(value: persistentState.stateMachine[request.key])

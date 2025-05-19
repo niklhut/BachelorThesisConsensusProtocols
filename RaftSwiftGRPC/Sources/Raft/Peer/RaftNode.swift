@@ -324,7 +324,7 @@ actor RaftNode: RaftNodeRPC {
                     votes += 1
 
                     if votes >= requiredVotes {
-                        logger.info("Received majority of votes (\(votes) / \(persistentState.peers.count)), becoming leader")
+                        logger.info("Received majority of votes (\(votes) / \(persistentState.peers.count + 1)), becoming leader")
                         becomeLeader()
 
                         // Cancel remaining tasks
@@ -335,7 +335,7 @@ actor RaftNode: RaftNodeRPC {
             }
 
             if volatileState.state == .candidate {
-                logger.info("Election failed, received votes: \(votes) / \(persistentState.peers.count)")
+                logger.info("Election failed, received votes: \(votes) / \(persistentState.peers.count + 1)")
             }
         }
     }
@@ -523,8 +523,11 @@ actor RaftNode: RaftNodeRPC {
         try await withGRPCClient(
             transport: .http2NIOPosix(
                 target: peer.target,
-                transportSecurity: .plaintext
+                transportSecurity: .plaintext,
             ),
+            interceptors: [
+                ServerIDInjectionInterceptor(peerID: persistentState.ownPeer.id),
+            ]
         ) { client in
             let peerClient = Raft_RaftPeer.Client(wrapping: client)
             return try await body(peerClient)

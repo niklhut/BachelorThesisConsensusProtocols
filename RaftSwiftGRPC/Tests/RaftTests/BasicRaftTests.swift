@@ -7,10 +7,15 @@ import Testing
 @Suite("Basic Raft Tests")
 struct BasicRaftTests: Sendable {
     var peers = [Raft_Peer]()
-    var servers: [GRPCServer<HTTP2ServerTransport.Posix>] = .init()
+    var servers = [GRPCServer<HTTP2ServerTransport.Posix>]()
+    var interceptors = [NetworkPartitionInterceptor]()
     var serverTasks: [Task<Void, Error>] = []
 
     let logger = Logger(label: "raft.BasicRaftTests")
+
+    var majority: Int {
+        peers.count / 2 + 1
+    }
 
     // MARK: - Lifecycle
 
@@ -28,6 +33,8 @@ struct BasicRaftTests: Sendable {
         for peer in peers {
             let node = RaftNode(peer, config: RaftConfig(), peers: peers.filter { $0.id != peer.id })
             nodes.append(node)
+            let interceptor = NetworkPartitionInterceptor(logger: logger)
+            interceptors.append(interceptor)
             let peerService = PeerService(node: node)
             let clientService = ClientService(node: node)
 
@@ -36,7 +43,8 @@ struct BasicRaftTests: Sendable {
                     address: .ipv4(host: peer.address, port: Int(peer.port)),
                     transportSecurity: .plaintext
                 ),
-                services: [peerService, clientService]
+                services: [peerService, clientService],
+                interceptors: [interceptor]
             )
             servers.append(server)
         }
@@ -122,6 +130,56 @@ struct BasicRaftTests: Sendable {
             let peerClient = Raft_RaftClient.Client(wrapping: client)
             return try await body(peerClient)
         }
+    }
+
+    /// Partitions an array into two groups based on the provided indices.
+    ///
+    /// - Parameters:
+    ///   - array: The array to partition.
+    ///   - groupOneSize: The size of the first group.
+    ///   - ensureInGroupOne: The indices of elements that must be in the first group.
+    /// - Throws: An error if the inputs are invalid.
+    /// - Returns: A tuple containing the two groups.
+    func partition(
+        _ array: [some Any],
+        groupOneSize: Int,
+        ensureInGroupOne indices: Int...
+    ) throws -> (groupOneIndices: [Int], groupTwoIndices: [Int]) {
+        // Validate inputs
+        for index in indices {
+            try #require(index >= 0 && index < array.count, "Index \(index) out of bounds")
+        }
+
+        try #require(groupOneSize > 0 && groupOneSize <= array.count, "Group one size must be between 1 and \(array.count)")
+
+        // Check if we can accommodate all required elements in group one
+        try #require(indices.count <= groupOneSize, "Cannot ensure \(indices.count) elements in group one when group one size is \(groupOneSize)")
+
+        // Create a set of indices to ensure fast lookups
+        let ensuredIndices = Set(indices)
+
+        // Get all available indices and separate them
+        let allIndices = Array(0 ..< array.count)
+        var remainingIndices = allIndices.filter { !ensuredIndices.contains($0) }
+
+        // Shuffle the remaining indices to ensure random distribution
+        remainingIndices.shuffle()
+
+        // Calculate how many more indices we need for group one
+        let additionalIndicesNeeded = groupOneSize - ensuredIndices.count
+
+        // Create the groups of indices
+        var groupOneIndices = Array(ensuredIndices)
+
+        // Add additional indices to group one if needed
+        if additionalIndicesNeeded > 0 {
+            groupOneIndices.append(contentsOf: remainingIndices.prefix(additionalIndicesNeeded))
+        }
+
+        // The rest go to group two
+        let groupTwoIndices = Array(remainingIndices.suffix(remainingIndices.count - additionalIndicesNeeded))
+
+        return (groupOneIndices, groupTwoIndices)
     }
 
     // MARK: - Tests
@@ -261,6 +319,80 @@ struct BasicRaftTests: Sendable {
         #expect(firstTerm > 2, "Term should be greater than 2 after multiple elections")
         for (_, term) in terms {
             #expect(term == firstTerm, "All nodes should have the same term")
+        }
+    }
+
+    @Test("Network partition - majority side still operates")
+    mutating func testNetworkPartition() async throws {
+        // Find the leader
+        let leaderIndex = try await findLeaderIndex()
+
+        let (majorityPartition, minorityPartition) = try partition(peers, groupOneSize: majority, ensureInGroupOne: leaderIndex)
+
+        logger.info("Creating network partition - Majority: \(majorityPartition.map { peers[$0].id }), Minority: \(minorityPartition.map { peers[$0].id })")
+
+        try #require(majorityPartition.count == majority, "Majority partition should have \(majority) nodes")
+        try #require(minorityPartition.count == peers.count - majority, "Minority partition should have \(peers.count - majority) nodes")
+
+        for majorityPeerIndex in majorityPartition {
+            await interceptors[majorityPeerIndex].blockPeers(minorityPartition.map { peers[$0].id })
+        }
+        for minorityPeerIndex in minorityPartition {
+            await interceptors[minorityPeerIndex].blockPeers(majorityPartition.map { peers[$0].id })
+        }
+
+        // Check leader is still leader
+        let leaderState = try await withClient(peer: peers[leaderIndex]) { client in
+            try await client.getServerState(.init()).state
+        }
+        try #require(leaderState == .leader, "Leader should still be leader")
+
+        // Add entry to the majority side
+        let putResponse = try await withClient(peer: peers[leaderIndex]) { client in
+            try await client.put(.with { request in
+                request.key = "partition-test"
+                request.value = "majority-value"
+            })
+        }
+        try #require(putResponse.success, "Put should succeed")
+
+        // Wait for replication within majority partition
+        try await Task.sleep(for: .seconds(1))
+
+        // Verify the majority side has the entry
+        for majorityIndex in majorityPartition {
+            let value = try await withClient(peer: peers[majorityIndex]) { client in
+                try await client.getDebug(.with { request in
+                    request.key = "partition-test"
+                })
+            }
+            #expect(value.value == "majority-value", "Entry should be replicated to majority partition")
+        }
+
+        // Verify no leader in minority partition
+        for idx in minorityPartition {
+            let state = try await withClient(peer: peers[idx]) { client in
+                try await client.getServerState(.init()).state
+            }
+            #expect(state != .leader, "Minority partition should not have a leader")
+        }
+
+        // Heal the partition
+        for interceptorIndex in interceptors.indices {
+            await interceptors[interceptorIndex].clearBlockedPeers()
+        }
+
+        // Wait for recovery
+        try await Task.sleep(for: .seconds(2))
+
+        // Verify all nodes eventually get the entry
+        for peerIndex in peers.indices {
+            let value = try await withClient(peer: peers[peerIndex]) { client in
+                try await client.getDebug(.with { request in
+                    request.key = "partition-test"
+                })
+            }
+            #expect(value.value == "majority-value", "Entry should be replicated to all node \(peers[peerIndex].id) after partition heals")
         }
     }
 }

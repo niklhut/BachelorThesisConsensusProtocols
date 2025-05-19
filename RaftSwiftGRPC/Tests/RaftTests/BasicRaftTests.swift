@@ -395,4 +395,29 @@ struct BasicRaftTests: Sendable {
             #expect(value.value == "majority-value", "Entry should be replicated to all node \(peers[peerIndex].id) after partition heals")
         }
     }
+
+    @Test("Leader hint")
+    func testLeaderHint() async throws {
+        // Find the leader
+        let leader = try await findLeader()
+
+        for peer in peers where peer.id != leader.id {
+            let putResponse = try await withClient(peer: peer) { client in
+                try await client.put(.with { request in
+                    request.key = "testKey"
+                    request.value = "testValue"
+                })
+            }
+            #expect(!putResponse.success, "Put should fail")
+            #expect(putResponse.leaderHint == leader, "Put response leader hint should be the leader")
+
+            let getResponse = try await withClient(peer: peer) { client in
+                try await client.get(.with { request in
+                    request.key = "testKey"
+                })
+            }
+            #expect(!getResponse.hasValue, "Get should fail")
+            #expect(getResponse.leaderHint == leader, "Get response leader hint should be the leader")
+        }
+    }
 }

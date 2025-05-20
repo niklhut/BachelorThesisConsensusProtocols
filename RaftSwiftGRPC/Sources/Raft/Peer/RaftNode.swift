@@ -11,6 +11,7 @@ actor RaftNode: RaftNodeRPC {
     let logger: Logger
 
     var heartbeatTask: Task<Void, any Error>?
+    let clientPool: GRPCClientPool
 
     var persistentState = Raft_PersistentState()
     var volatileState = Raft_VolatileState()
@@ -25,6 +26,9 @@ actor RaftNode: RaftNodeRPC {
         self.config = config
         persistentState.peers = peers
         logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
+        clientPool = GRPCClientPool(interceptors: [
+            ServerIDInjectionInterceptor(peerID: ownPeer.id),
+        ])
     }
 
     // MARK: - Server RPCs
@@ -518,18 +522,9 @@ actor RaftNode: RaftNodeRPC {
     /// - Throws: Any errors thrown by the block.
     /// - Returns: The result of the block.
     private func withClient<T: Sendable>(peer: Raft_Peer, _ body: @Sendable @escaping (_ client: Raft_RaftPeer.Client<HTTP2ClientTransport.Posix>) async throws -> T) async throws -> T {
-        try await withGRPCClient(
-            transport: .http2NIOPosix(
-                target: peer.target,
-                transportSecurity: .plaintext,
-            ),
-            interceptors: [
-                ServerIDInjectionInterceptor(peerID: persistentState.ownPeer.id),
-            ]
-        ) { client in
-            let peerClient = Raft_RaftPeer.Client(wrapping: client)
-            return try await body(peerClient)
-        }
+        let client = try await clientPool.client(for: peer)
+        let peerClient = Raft_RaftPeer.Client(wrapping: client)
+        return try await body(peerClient)
     }
 
     /// Updates the commit index and applies the committed entries to the state machine.

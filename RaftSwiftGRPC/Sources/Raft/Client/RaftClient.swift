@@ -6,6 +6,7 @@ actor RaftClient {
     let logger = Logger(label: "raft.RaftClient")
 
     let peers: [Raft_Peer]
+    let clientPool = GRPCClientPool()
 
     init(peers: [Raft_Peer]) {
         self.peers = peers
@@ -78,14 +79,8 @@ actor RaftClient {
     /// - Throws: Any errors thrown by the block.
     /// - Returns: The result of the block.
     private func withClient<T: Sendable>(peer: Raft_Peer, _ body: @Sendable @escaping (_ client: Raft_RaftClient.Client<HTTP2ClientTransport.Posix>) async throws -> T) async throws -> T {
-        try await withGRPCClient(
-            transport: .http2NIOPosix(
-                target: peer.target,
-                transportSecurity: .plaintext,
-            ),
-        ) { client in
-            let peerClient = Raft_RaftClient.Client(wrapping: client)
-            return try await body(peerClient)
-        }
+        let client = try await clientPool.client(for: peer)
+        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        return try await body(peerClient)
     }
 }

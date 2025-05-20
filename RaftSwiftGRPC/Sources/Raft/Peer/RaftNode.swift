@@ -226,10 +226,11 @@ actor RaftNode: RaftNodeRPC {
             while !Task.isCancelled {
                 if volatileState.state == .leader {
                     try await self.sendHeartbeat()
+                    try await Task.sleep(for: .milliseconds(config.heartbeatInterval))
                 } else {
                     try await self.checkElectionTimeout()
+                    try await Task.sleep(for: .milliseconds(config.heartbeatInterval * 3))
                 }
-                try await Task.sleep(for: .milliseconds(config.heartbeatInterval))
             }
         }
 

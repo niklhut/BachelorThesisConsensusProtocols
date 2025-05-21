@@ -1,5 +1,6 @@
 import ArgumentParser
 import RaftCore
+import RaftDistributedActorsTransport
 import RaftGRPCTransport
 
 final class Peer: AsyncParsableCommand {
@@ -18,15 +19,14 @@ final class Peer: AsyncParsableCommand {
     var peers: [RaftCore.Peer]
 
     @Flag(help: "Use Distributed Actor System for transport")
-    var distributedActorSystem: Bool = false
+    var useDistributedActorSystem: Bool = false
 
     func run() async throws {
-        // let server: any RaftNodeApplication = if distributedActorSystem {
-        //     RaftDistributedActorSystemServer(id: id, port: port, peers: peers)
-        // } else {
-        //     RaftGRPCServer(id: id, port: port, peers: peers)
-        // }
-        let server: any RaftNodeApplication = RaftGRPCServer(id: id, port: port, peers: peers)
+        let server: any RaftNodeApplication = if useDistributedActorSystem {
+            RaftDistributedActorServer(id: id, port: port, peers: peers)
+        } else {
+            RaftGRPCServer(id: id, port: port, peers: peers)
+        }
         try await server.serve()
     }
 }

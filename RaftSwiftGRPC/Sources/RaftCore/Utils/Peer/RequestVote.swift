@@ -1,5 +1,5 @@
 /// Candidate to Peer, used for voting
-public struct RequestVoteRequest: Sendable {
+public struct RequestVoteRequest: Sendable, Codable {
     /// Candidate's term
     public let term: Int
 
@@ -32,7 +32,7 @@ public struct RequestVoteRequest: Sendable {
 }
 
 /// Peer to Candidate, response to RequestVoteRequest
-public struct RequestVoteResponse: Sendable {
+public struct RequestVoteResponse: Sendable, Codable {
     /// Current term, for candidate to update itself
     public let term: Int
 

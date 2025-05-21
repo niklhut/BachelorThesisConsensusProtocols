@@ -1,5 +1,5 @@
 /// Leader to Follower, used for log replication and heartbeats
-public struct AppendEntriesRequest: Sendable {
+public struct AppendEntriesRequest: Sendable, Codable {
     /// Leader's current term
     public let term: Int
 
@@ -44,7 +44,7 @@ public struct AppendEntriesRequest: Sendable {
 }
 
 /// Follower to Leader, response to AppendEntriesRequest
-public struct AppendEntriesResponse: Sendable {
+public struct AppendEntriesResponse: Sendable, Codable {
     /// Current term, for leader to update itself
     public let term: Int
 

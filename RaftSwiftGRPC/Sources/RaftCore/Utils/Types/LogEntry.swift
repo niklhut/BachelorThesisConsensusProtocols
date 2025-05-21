@@ -1,5 +1,5 @@
 /// A single entry in the replicated log
-public struct LogEntry: Sendable, Hashable {
+public struct LogEntry: Sendable, Codable, Hashable {
     /// Term when the entry was received by the leader
     public let term: Int
 

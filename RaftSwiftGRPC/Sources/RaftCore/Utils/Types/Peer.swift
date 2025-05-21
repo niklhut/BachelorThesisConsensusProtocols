@@ -1,5 +1,5 @@
 /// A peer in the cluster
-public struct Peer: Sendable, Hashable, Identifiable {
+public struct Peer: Sendable, Codable, Hashable, Identifiable {
     /// The ID of the peer
     public let id: Int
 

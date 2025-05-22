@@ -10,21 +10,18 @@ extension DistributedReception.Key {
 }
 
 /// A peer transport that uses distributed actors for communication
-distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWatch {
+distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWatch, PeerDiscovery {
     typealias ActorSystem = ClusterSystem
 
-    /// The list of peers
     let peers: [Peer]
-    /// The remote actors mapped by peer
     var remoteActors: [Peer: DistributedActorPeerTransport] = [:]
+    var listingTask: Task<Void, Never>?
+
     /// The node provider
     private let nodeProvider: () -> RaftNode?
 
     /// The node
     weak var node: RaftNode!
-
-    /// The listing task, used to find peers
-    var listingTask: Task<Void, Never>?
 
     /// Initializes the peer transport
     /// - Parameters:
@@ -47,17 +44,7 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
         self.node = node
     }
 
-    /// Gets the remote actor for the given peer
-    /// - Parameter peer: The peer
-    /// - Returns: The remote actor
-    /// - Throws: RaftDistributedActorError.peerNotFound if the remote actor is not found
-    private distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorPeerTransport {
-        guard let remoteActor = remoteActors[peer] else {
-            throw RaftDistributedActorError.peerNotFound
-        }
-
-        return remoteActor
-    }
+    // MARK: - RaftPeerTransport
 
     func appendEntries(
         _ request: AppendEntriesRequest,
@@ -97,47 +84,5 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
         _ request: RequestVoteRequest,
     ) async throws -> RequestVoteResponse {
         try await node.requestVote(request: request)
-    }
-
-    // MARK: - LifecycleWatch
-
-    func terminated(actor id: ActorID) async {
-        if let index = remoteActors.firstIndex(where: { $0.value.id == id }) {
-            remoteActors.remove(at: index)
-        }
-    }
-
-    /// Finds peers using the actor system
-    distributed func findPeers() {
-        guard listingTask == nil else {
-            actorSystem.log.warning("Already looking for peers")
-            return
-        }
-
-        listingTask = Task {
-            for await remoteActor in await actorSystem.receptionist.listing(of: .raftNode) {
-                actorSystem.log.info("Found peer: \(remoteActor.id)")
-
-                let address = remoteActor.id
-
-                guard let url = URL(string: address.description),
-                      let host = url.host,
-                      let port = url.port
-                else {
-                    actorSystem.log.warning("Found peer with unknown address: \(remoteActor.id)")
-                    continue
-                }
-
-                guard let remoteActorPeer = peers.first(where: { $0.address == host && $0.port == port }) else {
-                    actorSystem.log.warning("Found peer with unknown address: \(remoteActor.id)")
-                    continue
-                }
-
-                actorSystem.log.info("\nFound peer: \(remoteActorPeer)\n")
-
-                remoteActors[remoteActorPeer] = remoteActor
-                watchTermination(of: remoteActor)
-            }
-        }
     }
 }

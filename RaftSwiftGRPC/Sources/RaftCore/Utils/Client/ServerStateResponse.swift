@@ -1,5 +1,5 @@
 /// Node to Client, response to ServerStateRequest
-public struct ServerStateResponse: Sendable {
+public struct ServerStateResponse: Sendable, Codable {
     /// The ID of the server
     public let id: Int
 

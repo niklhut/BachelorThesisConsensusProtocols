@@ -1,5 +1,5 @@
 /// Client to Leader, used for retrieving a value by key
-public struct GetRequest: Sendable {
+public struct GetRequest: Sendable, Codable {
     /// Key to retrieve
     public let key: String
 
@@ -12,7 +12,7 @@ public struct GetRequest: Sendable {
 }
 
 /// Leader to Client, response to GetRequest
-public struct GetResponse: Sendable {
+public struct GetResponse: Sendable, Codable {
     /// Value associated with the key, null if not found
     public let value: String?
 

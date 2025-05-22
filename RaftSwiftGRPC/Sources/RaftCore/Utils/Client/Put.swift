@@ -1,5 +1,5 @@
 /// Client to Leader, used for adding or updating a key-value pair
-public struct PutRequest: Sendable {
+public struct PutRequest: Sendable, Codable {
     /// Key to store
     public let key: String
 
@@ -17,7 +17,7 @@ public struct PutRequest: Sendable {
 }
 
 /// Leader to Client, response to PutRequest
-public struct PutResponse: Sendable {
+public struct PutResponse: Sendable, Codable {
     /// Whether the operation succeeded
     public let success: Bool
 

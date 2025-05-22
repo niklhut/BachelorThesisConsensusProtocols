@@ -1,5 +1,5 @@
 /// Node to Client, response to ServerTermRequest
-public struct ServerTermResponse: Sendable {
+public struct ServerTermResponse: Sendable, Codable {
     /// The ID of the server
     public let id: Int
 

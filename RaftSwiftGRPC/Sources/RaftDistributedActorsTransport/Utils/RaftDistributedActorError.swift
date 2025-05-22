@@ -1,3 +1,5 @@
+import RaftCore
+
 enum RaftDistributedActorError: Error {
-    case peerNotFound
+    case peerNotFound(peer: Peer)
 }

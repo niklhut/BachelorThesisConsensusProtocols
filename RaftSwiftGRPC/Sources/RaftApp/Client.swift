@@ -1,5 +1,6 @@
 import ArgumentParser
 import RaftCore
+import RaftDistributedActorsTransport
 import RaftGRPCTransport
 
 final class Client: AsyncParsableCommand {
@@ -32,12 +33,16 @@ final class Client: AsyncParsableCommand {
     // MARK: - Transport
 
     @Flag(help: "Use Distributed Actor System for transport")
-    var distributedActorSystem: Bool = false
+    var useDistributedActorSystem: Bool = false
 
     // MARK: - Run
 
     func run() async throws {
-        let client: any RaftClientApplication = RaftGRPCClient(peers: peers)
+        let client: any RaftClientApplication = if useDistributedActorSystem {
+            RaftDistributedActorClient(peers: peers)
+        } else {
+            RaftGRPCClient(peers: peers)
+        }
 
         if interactive {
             try await client.runInteractiveClient()

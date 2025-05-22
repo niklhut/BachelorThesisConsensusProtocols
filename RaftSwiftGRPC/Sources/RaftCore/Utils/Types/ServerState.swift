@@ -1,5 +1,5 @@
 /// The current role of the server in the Raft cluster
-public enum ServerState: Sendable {
+public enum ServerState: Sendable, Codable {
     /// Passive role; waits for messages from leader
     case follower
 

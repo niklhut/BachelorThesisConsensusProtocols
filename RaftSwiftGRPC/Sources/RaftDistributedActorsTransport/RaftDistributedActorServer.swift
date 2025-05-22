@@ -3,7 +3,7 @@ import Logging
 import RaftCore
 
 /// A Raft server that uses distributed actors for communication
-public final class RaftDistributedActorServer: RaftNodeApplication {
+public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnectable {
     /// The ID of this server
     let id: Int
     /// The port to listen on for incoming connections
@@ -41,16 +41,7 @@ public final class RaftDistributedActorServer: RaftNodeApplication {
 
         try await transport.setNode()
 
-        let peerAddresses = peers.map { peer in
-            Cluster.Endpoint(
-                host: peer.address,
-                port: peer.port
-            )
-        }
-
-        for peerAddress in peerAddresses {
-            actorSystem.cluster.join(endpoint: peerAddress)
-        }
+        connectToPeers(actorSystem: actorSystem)
 
         await node!.start()
         try await transport.findPeers()

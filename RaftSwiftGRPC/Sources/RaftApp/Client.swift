@@ -47,7 +47,7 @@ final class Client: AsyncParsableCommand {
         if interactive {
             try await client.runInteractiveClient()
         } else if stressTest {
-            try await client.runStressTest()
+            try await client.runStressTest(operations: operations, concurrency: concurrency)
         }
     }
 }

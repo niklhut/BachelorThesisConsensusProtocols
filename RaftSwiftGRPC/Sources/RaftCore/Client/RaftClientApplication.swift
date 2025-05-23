@@ -11,5 +11,5 @@ public protocol RaftClientApplication: Sendable {
 
     /// Runs the stress test
     /// - Throws: Any errors thrown by the client
-    func runStressTest() async throws
+    func runStressTest(operations: Int, concurrency: Int) async throws
 }

@@ -54,11 +54,11 @@ public final class RaftDistributedActorClient: RaftClientApplication, PeerConnec
         try await interactiveConsoleClient.run()
     }
 
-    public func runStressTest() async throws {
+    public func runStressTest(operations: Int, concurrency: Int) async throws {
         let client = try await setupClient()
 
         let stressTestClient = StressTestClient(client: client)
 
-        try await stressTestClient.run()
+        try await stressTestClient.run(operations: operations, concurrency: concurrency)
     }
 }

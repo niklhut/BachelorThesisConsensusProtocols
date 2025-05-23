@@ -1,8 +1,0 @@
-# Swift Version
---swiftversion 6.1
-
---semicolons never
---stripunusedargs unnamed-only
---wraparguments before-first
---wrapcollections before-first
---wrapparameters before-first

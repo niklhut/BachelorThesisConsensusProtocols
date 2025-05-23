@@ -43,10 +43,8 @@ public actor RaftNode {
                 term: persistentState.currentTerm,
                 voteGranted: false
             )
-        }
-
-        if request.term > persistentState.currentTerm {
-            logger.info("Received higher term, becoming follower")
+        } else if request.term > persistentState.currentTerm {
+            logger.info("Received higher term \(request.term), becoming follower of \(request.candidateID)")
 
             becomeFollower(newTerm: request.term, currentLeaderId: request.candidateID)
         }
@@ -76,10 +74,18 @@ public actor RaftNode {
                 success: false
             )
         } else if request.term > persistentState.currentTerm {
-            logger.info("Received higher term \(request.term), becoming follower")
+            logger.info("Received higher term \(request.term), becoming follower of \(request.leaderID)")
             becomeFollower(newTerm: request.term, currentLeaderId: request.leaderID)
         }
         // Own term and term of leader are the same
+
+        // If the node is a candidate, it should become a follower
+        if volatileState.state == .candidate {
+            becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
+        } else if volatileState.currentLeaderID != request.leaderID {
+            logger.info("Received append entries from a different leader \(request.leaderID), becoming follower of \(request.leaderID)")
+            becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
+        }
 
         // Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
         if request.prevLogIndex > 0 {
@@ -296,15 +302,11 @@ public actor RaftNode {
             }
 
             for await (peerId, vote) in group {
-                if Task.isCancelled {
-                    break
-                }
-
                 logger.trace("Received vote from \(peerId): \(vote.voteGranted)")
 
                 // Check if the peer has a higher term
                 if vote.term > persistentState.currentTerm {
-                    logger.info("Received higher term, becoming follower")
+                    logger.info("Received higher term \(vote.term), becoming follower of \(peerId)")
                     becomeFollower(newTerm: vote.term, currentLeaderId: peerId)
                     return
                 }
@@ -317,8 +319,6 @@ public actor RaftNode {
                         logger.info("Received majority of votes (\(votes) / \(persistentState.peers.count + 1)), becoming leader")
                         becomeLeader()
 
-                        // Cancel remaining tasks
-                        group.cancelAll()
                         return
                     }
                 }
@@ -489,7 +489,7 @@ public actor RaftNode {
                 }
 
                 if result.term > persistentState.currentTerm {
-                    logger.info("Received higher term, becoming follower")
+                    logger.info("Received higher term \(result.term), becoming follower of \(peer.id)")
                     becomeFollower(newTerm: result.term, currentLeaderId: peer.id)
                     return
                 }

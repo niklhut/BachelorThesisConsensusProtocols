@@ -75,25 +75,16 @@ public actor RaftNode {
                 term: persistentState.currentTerm,
                 success: false
             )
-        }
-
-        if request.term > persistentState.currentTerm {
-            logger.info("Received higher term, becoming follower")
-
+        } else if request.term > persistentState.currentTerm {
+            logger.info("Received higher term \(request.term), becoming follower")
             becomeFollower(newTerm: request.term, currentLeaderId: request.leaderID)
         }
-
-        // First, update commit index
-        if request.leaderCommit > volatileState.commitIndex {
-            volatileState.commitIndex = min(request.leaderCommit, persistentState.log.count)
-
-            applyCommittedEntries()
-        }
+        // Own term and term of leader are the same
 
         // Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
         if request.prevLogIndex > 0 {
             if persistentState.log.count < request.prevLogIndex {
-                logger.info("Log is too short, not matching prevLogIndex")
+                logger.info("Log is too short (length: \(persistentState.log.count), needed: \(request.prevLogIndex))")
 
                 return AppendEntriesResponse(
                     term: persistentState.currentTerm,
@@ -104,7 +95,7 @@ public actor RaftNode {
             let prevLogTerm = persistentState.log[request.prevLogIndex - 1].term
             if prevLogTerm != request.prevLogTerm {
                 // Term mismatch at the expected previous index
-                logger.info("Term mismatch at the expected previous index")
+                logger.info("Term mismatch at prevLogIndex \(request.prevLogIndex): expected \(request.prevLogTerm), got \(prevLogTerm)")
 
                 return AppendEntriesResponse(
                     term: persistentState.currentTerm,
@@ -115,22 +106,19 @@ public actor RaftNode {
 
         // If an existing entry conflicts with a new one (same index but different terms),
         // delete the existing entry and all that follow it
-        // Append any new entries not already in the log
-        if request.entries.count > 0 {
-            let newEntries = request.entries
+        if !request.entries.isEmpty {
             var conflictIndex: Int? = nil
 
-            for i in 0 ..< newEntries.count {
-                let entryIndex = request.prevLogIndex + i + 1
+            for (i, newEntry) in request.entries.enumerated() {
+                let logIndex = request.prevLogIndex + i + 1
+                let arrayIndex = logIndex - 1
 
-                if entryIndex <= persistentState.log.count {
+                if arrayIndex < persistentState.log.count {
                     // This is an existing entry in our log - check for conflict
-                    let existingTerm = persistentState.log[entryIndex - 1].term
-                    let newTerm = newEntries[i].term
-
-                    if existingTerm != newTerm {
+                    let existingEntry = persistentState.log[arrayIndex]
+                    if existingEntry.term != newEntry.term {
                         // Found a conflict - different term for same index
-                        logger.info("Found a conflict - different term for same index at \(entryIndex)")
+                        logger.info("Found conflict at index \(logIndex): existing term \(existingEntry.term), new term \(newEntry.term)")
                         conflictIndex = i
                         break
                     }
@@ -144,18 +132,29 @@ public actor RaftNode {
 
             if let conflictIndex {
                 // Remove conflicting entry and everything that follows
-                let deleteFromIndex = request.prevLogIndex + conflictIndex
-                persistentState.log.removeSubrange(deleteFromIndex - 1 ..< persistentState.log.count)
+                let deleteFromIndex = request.prevLogIndex + conflictIndex + 1
+                let deleteFromArrayIndex = deleteFromIndex - 1
 
-                // Append new entries
-                persistentState.log.append(contentsOf: newEntries[conflictIndex...])
-            } else {
-                // No conflict - append all new entries
-                let newEntriesStartIndex = max(0, persistentState.log.count - request.prevLogIndex)
-                if newEntriesStartIndex < newEntries.count {
-                    persistentState.log.append(contentsOf: newEntries[newEntriesStartIndex...])
-                }
+                logger.info("Truncating log from index \(deleteFromIndex)")
+                persistentState.log.removeSubrange(deleteFromArrayIndex ..< persistentState.log.count)
             }
+
+            // Append any new entries not already in the log
+            let startAppendIndex = max(0, persistentState.log.count - request.prevLogIndex)
+            if startAppendIndex < request.entries.count {
+                let entriesToAppend = request.entries[startAppendIndex...]
+                logger.trace("Appending \(entriesToAppend.count) entries starting from log index \(persistentState.log.count + 1)")
+                persistentState.log.append(contentsOf: entriesToAppend)
+            }
+        }
+
+        // Update commit index
+        if request.leaderCommit > volatileState.commitIndex {
+            let lastLogIndex = persistentState.log.count
+            volatileState.commitIndex = min(request.leaderCommit, lastLogIndex)
+            logger.trace("Updating commit index to \(volatileState.commitIndex)")
+
+            applyCommittedEntries()
         }
 
         return AppendEntriesResponse(
@@ -384,7 +383,7 @@ public actor RaftNode {
 
         // Start a background task for replication
         Task {
-            await withThrowingTaskGroup { group in
+            try await withThrowingTaskGroup { group in
                 // Start individual replication tasks for each peer
                 for peer in persistentStateSnapshot.peers {
                     group.addTask {
@@ -398,22 +397,21 @@ public actor RaftNode {
                     }
                 }
 
-                // Wait for majority of peers to have replicated the log
-                await replicationTracker.waitForMajority()
-                logger.trace("Majority of peers have replicated the log", metadata: [
-                    "messageHash": .stringConvertible(entries.hashValue),
-                ])
-
-                // Once majority has replicated the log, update commit index
-                // and apply committed entries
-                if volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm {
-                    await updateCommitIndexAndApply()
-                }
+                try await group.waitForAll()
             }
         }
 
         // Wait for majority to have replicated the log before returning
         await replicationTracker.waitForMajority()
+        logger.trace("Majority of peers have replicated the log", metadata: [
+            "messageHash": .stringConvertible(entries.hashValue),
+        ])
+
+        // Once majority has replicated the log, update commit index
+        // and apply committed entries
+        if volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm {
+            await updateCommitIndexAndApply()
+        }
     }
 
     /// Replicates log entries to a single peer.
@@ -433,6 +431,8 @@ public actor RaftNode {
     ) async throws {
         var retryCount = 0
 
+        let targetEndIndex = persistentStateSnapshot.log.count + entries.count
+
         // Continue trying until successful or no longer leader
         while !Task.isCancelled, volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm, persistentState.peers.contains(peer) {
             // Check if already successful (another task marked it as successful)
@@ -440,11 +440,17 @@ public actor RaftNode {
                 return
             }
 
+            let currentMatchIndex = leaderState.matchIndex[peer.id] ?? 0
+            if currentMatchIndex > targetEndIndex {
+                await replicationTracker.markSuccess(id: peer.id)
+                return
+            }
+
             do {
-                let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentStateSnapshot.log.count + 1
+                let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + 1
                 let peerPrevLogIndex = peerNextIndex - 1
-                let peerPrevLogTerm = if peerPrevLogIndex > 0, peerPrevLogIndex <= persistentStateSnapshot.log.count {
-                    persistentStateSnapshot.log[peerPrevLogIndex - 1].term
+                let peerPrevLogTerm = if peerPrevLogIndex > 0, peerPrevLogIndex <= persistentState.log.count {
+                    persistentState.log[peerPrevLogIndex - 1].term
                 } else {
                     0
                 }
@@ -452,11 +458,17 @@ public actor RaftNode {
                 // Calculate entries to send
                 let entriesToSend: [LogEntry]
                 if peerNextIndex <= persistentStateSnapshot.log.count {
-                    // Need to send some previous entries
-                    let startIndex = max(0, peerNextIndex - 1)
-                    entriesToSend = Array(persistentStateSnapshot.log[startIndex...])
-                } else {
+                    // Peer needs entries from the original log (catch-up scenario)
+                    let startIndex = peerNextIndex - 1 // Convert to 0-based index
+                    entriesToSend = Array(persistentState.log[startIndex...])
+                } else if peerNextIndex == persistentStateSnapshot.log.count + 1 {
+                    // Peer is up-to-date with original log, send only new entries
                     entriesToSend = entries
+                } else {
+                    // Peer's nextIndex is beyond what we expect - this shouldn't happen
+                    // Reset nextIndex and retry
+                    leaderState.nextIndex[peer.id] = persistentStateSnapshot.log.count + 1
+                    continue
                 }
 
                 logger.trace("Sending append entries to \(peer.id) with nextIndex: \(peerNextIndex), prevLogIndex: \(peerPrevLogIndex), prevLogTerm: \(peerPrevLogTerm), entries.count: \(entriesToSend.count)")
@@ -529,21 +541,29 @@ public actor RaftNode {
 
     /// Updates the commit index and applies the committed entries to the state machine.
     private func updateCommitIndexAndApply() async {
+        // Safety check: ensure we are still leader
+        guard volatileState.state == .leader else {
+            return
+        }
+
         // Add own match index (implicitly the end of the log)
         var allMatchIndices = leaderState.matchIndex
         allMatchIndices[persistentState.ownPeer.id] = persistentState.log.count
 
         // Calculate new commit index based on majority match indices
-        let sortedIndices = Array(allMatchIndices.values).sorted()
+        let sortedIndices = Array(allMatchIndices.values).sorted(by: >)
         let majorityIndex = sortedIndices[majority - 1]
 
         // Only update commit index if it's in the current term
         // (Raft safety requirement: only commit entries from current term)
-        if volatileState.commitIndex < majorityIndex {
-            for i in stride(from: majorityIndex, through: volatileState.commitIndex + 1, by: -1) {
-                if i <= persistentState.log.count, persistentState.log[i - 1].term == persistentState.currentTerm {
-                    volatileState.commitIndex = i
-                    // Break the loop as soon as the term matches, since go
+        let oldCommitIndex = volatileState.commitIndex
+
+        for newCommitIndex in stride(from: majorityIndex, through: oldCommitIndex + 1, by: -1) {
+            if newCommitIndex > 0, newCommitIndex <= persistentState.log.count {
+                let entry = persistentState.log[newCommitIndex - 1]
+                if entry.term == persistentState.currentTerm {
+                    volatileState.commitIndex = newCommitIndex
+                    logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
                     break
                 }
             }
@@ -559,7 +579,9 @@ public actor RaftNode {
             let entry = persistentState.log[volatileState.lastApplied]
 
             if let key = entry.key {
+                let oldValue = persistentState.stateMachine[key]
                 persistentState.stateMachine[key] = entry.value
+                logger.trace("Applied entry at index \(volatileState.lastApplied + 1): \(key) = \(entry.value ?? "nil") (was: \(oldValue ?? "nil"))")
             }
 
             volatileState.lastApplied += 1

@@ -38,15 +38,14 @@ public actor StressTestClient {
         leader = try await client.findLeader()
 
         // Pre-generate all test values before starting the test
-        let baseKeys = (0 ..< 100).map { "stress-key-\($0)" }
         let testValues = (0 ..< operations).map { i in
-            PutRequest(key: baseKeys[i % baseKeys.count], value: "stress-value-\(i)-\(UUID().uuidString)")
+            PutRequest(key: "stress-key-\(i)", value: "stress-value-\(i)-\(UUID().uuidString)")
         }
 
         var nextOperationIndex = concurrency
 
         // Use task group to maintain constant concurrency
-        return await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
+        await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
             // Initialize with 'concurrency' number of tasks
             for i in 0 ..< min(concurrency, operations) {
                 group.addTask {
@@ -104,6 +103,25 @@ public actor StressTestClient {
                 - Concurrency Level: \(concurrency)
                 """
             )
+        }
+
+        // Perform sanity check to see that all operations are actually persisted on all nodes
+        logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
+
+        try await withThrowingTaskGroup { group in
+            for value in testValues {
+                for peer in self.client.peers {
+                    group.addTask {
+                        let getRequest = GetRequest(key: value.key)
+                        let response = try await self.client.getDebug(request: getRequest, to: peer)
+                        if response.value != value.value {
+                            self.logger.error("Value mismatch for key \(value.key) on peer \(peer): expected \(String(describing: value.value)), got \(String(describing: response.value))")
+                        }
+                    }
+                }
+            }
+
+            try await group.waitForAll()
         }
     }
 

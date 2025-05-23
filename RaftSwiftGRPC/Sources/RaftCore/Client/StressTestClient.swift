@@ -108,9 +108,20 @@ public actor StressTestClient {
         // Perform sanity check to see that all operations are actually persisted on all nodes
         logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
 
-        try await withThrowingTaskGroup { group in
-            for value in testValues {
-                for peer in self.client.peers {
+        let sanityTasks = testValues.flatMap { value in
+            self.client.peers.map { peer in
+                (value, peer)
+            }
+        }
+
+        let batchSize = concurrency
+        var batchStartIndex = 0
+
+        while batchStartIndex < sanityTasks.count {
+            let batch = sanityTasks[batchStartIndex ..< min(batchStartIndex + batchSize, sanityTasks.count)]
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for (value, peer) in batch {
                     group.addTask {
                         let getRequest = GetRequest(key: value.key)
                         let response = try await self.client.getDebug(request: getRequest, to: peer)
@@ -119,9 +130,10 @@ public actor StressTestClient {
                         }
                     }
                 }
+                try await group.waitForAll()
             }
 
-            try await group.waitForAll()
+            batchStartIndex += batchSize
         }
     }
 

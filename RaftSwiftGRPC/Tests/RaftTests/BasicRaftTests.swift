@@ -1,12 +1,14 @@
 import GRPCCore
 import GRPCNIOTransportHTTP2
 import Logging
-@testable import Raft
+@testable import RaftApp
+@testable import RaftCore
+@testable import RaftGRPCTransport
 import Testing
 
 @Suite("Basic Raft Tests")
 struct BasicRaftTests: Sendable {
-    var peers = [Raft_Peer]()
+    var peers = [RaftCore.Peer]()
     var servers = [GRPCServer<HTTP2ServerTransport.Posix>]()
     var interceptors = [NetworkPartitionInterceptor]()
     var serverTasks: [Task<Void, Error>] = []
@@ -25,13 +27,18 @@ struct BasicRaftTests: Sendable {
 
         // First create the peers
         for i in 1 ... 5 {
-            peers.append(Raft_Peer(id: UInt32(i), address: "0.0.0.0", port: UInt32(basePort + i)))
+            peers.append(RaftCore.Peer(id: i, address: "0.0.0.0", port: basePort + i))
         }
 
         // Then create the nodes and servers
         var nodes = [RaftNode]()
         for peer in peers {
-            let node = RaftNode(peer, config: RaftConfig(), peers: peers.filter { $0.id != peer.id })
+            let node = RaftNode(
+                peer,
+                peers: peers.filter { $0.id != peer.id }, config: RaftConfig(), transport: GRPCPeerTransport(clientPool: GRPCClientPool(interceptors: [
+                    ServerIDInjectionInterceptor(peerID: peer.id),
+                ]))
+            )
             nodes.append(node)
             let interceptor = NetworkPartitionInterceptor(logger: logger)
             interceptors.append(interceptor)
@@ -74,7 +81,7 @@ struct BasicRaftTests: Sendable {
 
         logger.info("All nodes started")
 
-        try await Task.sleep(for: .seconds(1))
+        try await Task.sleep(for: .seconds(5))
     }
 
     // MARK: - Helpers
@@ -84,8 +91,8 @@ struct BasicRaftTests: Sendable {
     /// - Parameter excluding: The index of the node to exclude from the search.
     /// - Throws: An error if no leader is found.
     /// - Returns: The leader node.
-    private func findLeader(excluding: Int? = nil) async throws -> Raft_Peer {
-        var leader: Raft_Peer?
+    private func findLeader(excluding: Int? = nil) async throws -> RaftCore.Peer {
+        var leader: RaftCore.Peer?
 
         for (index, peer) in peers.enumerated() where excluding != index {
             let response = try await withClient(peer: peer) { client in
@@ -120,7 +127,7 @@ struct BasicRaftTests: Sendable {
     ///   - body: The block to execute.
     /// - Throws: Any errors thrown by the block.
     /// - Returns: The result of the block.
-    private func withClient<T: Sendable>(peer: Raft_Peer, _ body: @Sendable @escaping (_ client: Raft_RaftClient.Client<HTTP2ClientTransport.Posix>) async throws -> T) async throws -> T {
+    private func withClient<T: Sendable>(peer: RaftCore.Peer, _ body: @Sendable @escaping (_ client: Raft_RaftClient.Client<HTTP2ClientTransport.Posix>) async throws -> T) async throws -> T {
         try await withGRPCClient(
             transport: .http2NIOPosix(
                 target: peer.target,
@@ -409,7 +416,7 @@ struct BasicRaftTests: Sendable {
                 })
             }
             #expect(!putResponse.success, "Put should fail")
-            #expect(putResponse.leaderHint == leader, "Put response leader hint should be the leader")
+            #expect(putResponse.leaderHint == leader.toGRPC(), "Put response leader hint should be the leader for peer \(peer.id)")
 
             let getResponse = try await withClient(peer: peer) { client in
                 try await client.get(.with { request in
@@ -417,7 +424,7 @@ struct BasicRaftTests: Sendable {
                 })
             }
             #expect(!getResponse.hasValue, "Get should fail")
-            #expect(getResponse.leaderHint == leader, "Get response leader hint should be the leader")
+            #expect(getResponse.leaderHint == leader.toGRPC(), "Get response leader hint should be the leader for peer \(peer.id)")
         }
     }
 }

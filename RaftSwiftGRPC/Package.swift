@@ -63,7 +63,10 @@ let package = Package(
         .testTarget(
             name: "RaftTests",
             dependencies: [
+                "RaftApp",
                 "RaftCore",
+                "RaftGRPCTransport",
+                "RaftDistributedActorsTransport",
                 .product(name: "Testing", package: "swift-testing"),
             ]
         ),

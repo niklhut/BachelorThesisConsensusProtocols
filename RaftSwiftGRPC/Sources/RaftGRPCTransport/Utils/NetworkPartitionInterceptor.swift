@@ -4,7 +4,7 @@ import Logging
 /// Interceptor that blocks requests from certain peers
 actor NetworkPartitionInterceptor: ServerInterceptor {
     /// The IDs of the peers that are blocked
-    private var blockedPeers: Set<UInt32>
+    private var blockedPeers: Set<Int>
 
     /// The logger
     private let logger: Logger
@@ -18,7 +18,7 @@ actor NetworkPartitionInterceptor: ServerInterceptor {
 
     /// Blocks the given peers
     /// - Parameter peers: The peers to block
-    func blockPeers(_ peers: [UInt32]) {
+    func blockPeers(_ peers: [Int]) {
         blockedPeers.formUnion(peers)
         logger.info("Blocked peers: \(blockedPeers)")
     }
@@ -40,7 +40,7 @@ actor NetworkPartitionInterceptor: ServerInterceptor {
         where Input: Sendable, Output: Sendable
     {
         if let peerId = request.metadata[stringValues: "x-peer-id"].first(where: { _ in true }) {
-            if blockedPeers.contains(UInt32(peerId)!) {
+            if blockedPeers.contains(Int(peerId)!) {
                 throw RPCError(code: .unavailable, message: "Request blocked by network partition")
             }
         }

@@ -1,0 +1,19 @@
+syntax = "proto3";
+package raft;
+
+import "google/protobuf/empty.proto";
+
+// Service for partitioning the cluster
+service Partition {
+    // Blocks communication between specified peer groups
+    rpc blockPeers(BlockPeersRequest) returns (google.protobuf.Empty);
+
+    // Heals the partition
+    rpc clearBlockedPeers(google.protobuf.Empty) returns (google.protobuf.Empty);
+}
+
+// Request for blocking communication between specified peer groups
+message BlockPeersRequest {
+    // The IDs of the peers to block
+    repeated int32 peerIds = 1;
+}

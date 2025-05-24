@@ -9,7 +9,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
         self.node = node
     }
 
-    func put(request: Raft_PutRequest, context: GRPCCore.ServerContext) async throws -> Raft_PutResponse {
+    func put(request: Raft_PutRequest, context: ServerContext) async throws -> Raft_PutResponse {
         let response = try await node.put(request: PutRequest(key: request.key, value: request.value))
 
         return .with { grpcResponse in
@@ -20,7 +20,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
         }
     }
 
-    func get(request: Raft_GetRequest, context: GRPCCore.ServerContext) async throws -> Raft_GetResponse {
+    func get(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
         let response = try await node.get(request: GetRequest(key: request.key))
 
         return .with { grpcResponse in
@@ -33,7 +33,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
         }
     }
 
-    func getDebug(request: Raft_GetRequest, context: GRPCCore.ServerContext) async throws -> Raft_GetResponse {
+    func getDebug(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
         let response = try await node.getDebug(request: GetRequest(key: request.key))
 
         return .with { grpcResponse in

@@ -8,7 +8,7 @@ struct PeerService: Raft_RaftPeer.SimpleServiceProtocol {
         self.node = node
     }
 
-    func requestVote(request: Raft_RequestVoteRequest, context: GRPCCore.ServerContext) async throws -> Raft_RequestVoteResponse {
+    func requestVote(request: Raft_RequestVoteRequest, context: ServerContext) async throws -> Raft_RequestVoteResponse {
         let response = try await node.requestVote(request: RequestVoteRequest(
             term: Int(request.term),
             candidateID: Int(request.candidateID),
@@ -22,7 +22,7 @@ struct PeerService: Raft_RaftPeer.SimpleServiceProtocol {
         }
     }
 
-    func appendEntries(request: Raft_AppendEntriesRequest, context: GRPCCore.ServerContext) async throws -> Raft_AppendEntriesResponse {
+    func appendEntries(request: Raft_AppendEntriesRequest, context: ServerContext) async throws -> Raft_AppendEntriesResponse {
         let response = try await node.appendEntries(request: AppendEntriesRequest(
             term: Int(request.term),
             leaderID: Int(request.leaderID),
@@ -38,7 +38,7 @@ struct PeerService: Raft_RaftPeer.SimpleServiceProtocol {
         }
     }
 
-    func installSnapshot(request: Raft_InstallSnapshotRequest, context: GRPCCore.ServerContext) async throws -> Raft_InstallSnapshotResponse {
+    func installSnapshot(request: Raft_InstallSnapshotRequest, context: ServerContext) async throws -> Raft_InstallSnapshotResponse {
         throw RPCError(code: .unimplemented, message: "Not implemented")
     }
 }

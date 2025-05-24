@@ -33,12 +33,22 @@ public final class RaftGRPCServer: RaftNodeApplication {
         let peerService = PeerService(node: node)
         let clientService = ClientService(node: node)
 
+        let partitionInterceptor = NetworkPartitionInterceptor(logger: logger)
+        let partitionService = PartitionService(partitionController: partitionInterceptor)
+
         let server = GRPCServer(
             transport: .http2NIOPosix(
                 address: .ipv4(host: ownPeer.address, port: ownPeer.port),
                 transportSecurity: .plaintext
             ),
-            services: [peerService, clientService]
+            services: [
+                peerService,
+                clientService,
+                partitionService,
+            ],
+            interceptors: [
+                partitionInterceptor,
+            ]
         )
 
         try await withThrowingTaskGroup(of: Void.self) { group in

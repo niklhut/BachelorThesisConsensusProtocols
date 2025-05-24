@@ -1,4 +1,5 @@
 import ConsoleKitTerminal
+import RaftCore
 
 /// Interactive console client for Raft.
 /// Allows to send read, read debug and put requests to the Raft cluster.

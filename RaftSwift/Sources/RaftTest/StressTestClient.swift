@@ -1,6 +1,7 @@
 import ConsoleKitTerminal
 import Foundation
 import Logging
+import RaftCore
 
 /// Stress test client for Raft.
 /// Allows to perform a stress test on the Raft cluster.

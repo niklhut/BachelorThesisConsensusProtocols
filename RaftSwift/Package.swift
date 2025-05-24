@@ -28,7 +28,6 @@ let package = Package(
             name: "RaftCore",
             dependencies: [
                 .product(name: "Logging", package: "swift-log"),
-                .product(name: "ConsoleKitTerminal", package: "console-kit"),
             ]
         ),
         .target(

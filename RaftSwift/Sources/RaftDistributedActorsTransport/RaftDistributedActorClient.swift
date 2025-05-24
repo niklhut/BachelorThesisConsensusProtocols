@@ -1,6 +1,7 @@
 import DistributedCluster
 import Logging
 import RaftCore
+import RaftTest
 
 /// A Raft client that uses distributed actors for communication
 public final class RaftDistributedActorClient: RaftClientApplication, PeerConnectable {

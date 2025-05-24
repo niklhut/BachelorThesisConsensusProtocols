@@ -2,6 +2,7 @@ import GRPCCore
 import GRPCNIOTransportHTTP2
 import Logging
 import RaftCore
+import RaftTest
 
 /// A Raft client that uses gRPC for communication
 public final class RaftGRPCClient: RaftClientApplication {

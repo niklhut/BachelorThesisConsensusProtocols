@@ -2,9 +2,9 @@ import ConsoleKitTerminal
 
 /// Interactive console client for Raft.
 /// Allows to send read, read debug and put requests to the Raft cluster.
-public struct InteractiveConsoleClient {
+public struct InteractiveConsoleClient<Transport: RaftClientTransport> {
     /// The Raft client to use for communication with the server.
-    let client: RaftClient
+    let client: RaftClient<Transport>
 
     /// The terminal to use for output.
     let terminal = Terminal()
@@ -12,7 +12,7 @@ public struct InteractiveConsoleClient {
     /// Initializes a new instance of the InteractiveConsoleClient class.
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient) {
+    public init(client: RaftClient<Transport>) {
         self.client = client
     }
 

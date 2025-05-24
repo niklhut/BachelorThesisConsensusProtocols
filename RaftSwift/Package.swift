@@ -32,9 +32,18 @@ let package = Package(
             ]
         ),
         .target(
+            name: "RaftTest",
+            dependencies: [
+                "RaftCore",
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "ConsoleKitTerminal", package: "console-kit"),
+            ]
+        ),
+        .target(
             name: "RaftGRPCTransport",
             dependencies: [
                 "RaftCore",
+                "RaftTest",
                 .product(name: "GRPCCore", package: "grpc-swift"),
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
@@ -47,6 +56,7 @@ let package = Package(
             name: "RaftDistributedActorsTransport",
             dependencies: [
                 "RaftCore",
+                "RaftTest",
                 .product(name: "DistributedCluster", package: "swift-distributed-actors"),
             ]
         ),
@@ -54,6 +64,7 @@ let package = Package(
             name: "RaftApp",
             dependencies: [
                 "RaftCore",
+                "RaftTest",
                 "RaftGRPCTransport",
                 "RaftDistributedActorsTransport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),

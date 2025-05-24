@@ -1,17 +1,17 @@
 import Foundation
 import Logging
 
-public actor RaftClient {
+public actor RaftClient<Transport: RaftClientTransport> {
     // MARK: - Properties
 
     /// The transport layer to use for communication with the server.
-    private let transport: any RaftClientTransport
+    @_spi(TransportAccess) public let transport: Transport
 
     /// The logger to use for logging.
     let logger: Logger
 
     /// The list of peers in the cluster.
-    let peers: [Peer]
+    public nonisolated let peers: [Peer]
 
     // MARK: - Init
 
@@ -19,7 +19,7 @@ public actor RaftClient {
     /// - Parameters:
     ///   - peers: The list of peers in the cluster.
     ///   - transport: The transport layer to use for communication with the server.
-    public init(peers: [Peer], transport: any RaftClientTransport) {
+    public init(peers: [Peer], transport: Transport) {
         self.peers = peers
         self.transport = transport
         logger = Logger(label: "raft.RaftClient")
@@ -101,7 +101,7 @@ public actor RaftClient {
     /// - Parameter excluding: The index of the node to exclude from the search.
     /// - Throws: An error if no leader is found.
     /// - Returns: The leader node.
-    func findLeader(excluding: Int? = nil) async throws -> Peer {
+    public func findLeader(excluding: Int? = nil) async throws -> Peer {
         var leader: Peer?
 
         for (index, peer) in peers.enumerated() where excluding != index {

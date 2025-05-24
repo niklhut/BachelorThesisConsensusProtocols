@@ -4,9 +4,9 @@ import Logging
 
 /// Stress test client for Raft.
 /// Allows to perform a stress test on the Raft cluster.
-public actor StressTestClient {
+public actor StressTestClient<Transport: RaftClientTransport> {
     /// The Raft client to use for communication with the server.
-    let client: RaftClient
+    let client: RaftClient<Transport>
 
     /// The logger to use for logging.
     let logger = Logger(label: "raft.StressTestClient")
@@ -20,7 +20,7 @@ public actor StressTestClient {
     /// Initializes a new instance of the StressTestClient class.
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient) {
+    public init(client: RaftClient<Transport>) {
         self.client = client
     }
 

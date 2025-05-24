@@ -14,7 +14,7 @@ public final class RaftDistributedActorClient: RaftClientApplication, PeerConnec
         self.peers = peers
     }
 
-    private func setupClient() async throws -> RaftClient {
+    private func setupClient() async throws -> RaftClient<DistributedActorClientTransport> {
         let actorSystem = await ClusterSystem("raft.DistributedActorSystem.Client")
 
         connectToPeers(actorSystem: actorSystem)

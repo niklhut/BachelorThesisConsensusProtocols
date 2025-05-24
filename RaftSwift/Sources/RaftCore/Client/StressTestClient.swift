@@ -124,7 +124,7 @@ public actor StressTestClient {
                 for (value, peer) in batch {
                     group.addTask {
                         let getRequest = GetRequest(key: value.key)
-                        let response = try await self.client.getDebug(request: getRequest, to: peer)
+                        let response = try await self.client.getDebug(request: getRequest, from: peer)
                         if response.value != value.value {
                             self.logger.error("Value mismatch for key \(value.key) on peer \(peer): expected \(String(describing: value.value)), got \(String(describing: response.value))")
                         }

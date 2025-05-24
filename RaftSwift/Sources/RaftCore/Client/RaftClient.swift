@@ -53,7 +53,7 @@ public actor RaftClient {
     ///   - isolation: The isolation to use for the request.
     /// - Returns: The response from the peer.
     /// - Throws: An error if the request could not be sent.
-    public func get(request: GetRequest, to peer: Peer? = nil) async throws -> GetResponse {
+    public func get(request: GetRequest, from peer: Peer? = nil) async throws -> GetResponse {
         let peer = if let peer {
             peer
         } else {
@@ -64,15 +64,34 @@ public actor RaftClient {
     }
 
     /// Sends a GetDebug request to the specified peer.
-    /// The getDebug request always succeeds.
     /// - Parameters:
     ///   - request: The GetDebug request to send.
     ///   - peer: The peer to send the request to.
     ///   - isolation: The isolation to use for the request.
     /// - Returns: The response from the peer.
     /// - Throws: An error if the request could not be sent.
-    public func getDebug(request: GetRequest, to peer: Peer) async throws -> GetResponse {
+    public func getDebug(request: GetRequest, from peer: Peer) async throws -> GetResponse {
         try await transport.getDebug(request, from: peer, isolation: #isolation)
+    }
+
+    /// Sends a GetServerState request to the specified peer.
+    /// - Parameters:
+    ///   - peer: The peer to send the request to.
+    ///   - isolation: The isolation to use for the request.
+    /// - Returns: The response from the peer.
+    /// - Throws: An error if the request could not be sent.
+    public func getServerState(of peer: Peer) async throws -> ServerStateResponse {
+        try await transport.getServerState(of: peer, isolation: #isolation)
+    }
+
+    /// Sends a GetTerm request to the specified peer.
+    /// - Parameters:
+    ///   - peer: The peer to send the request to.
+    ///   - isolation: The isolation to use for the request.
+    /// - Returns: The response from the peer.
+    /// - Throws: An error if the request could not be sent.
+    public func getServerTerm(of peer: Peer) async throws -> ServerTermResponse {
+        try await transport.getTerm(of: peer, isolation: #isolation)
     }
 
     // MARK: - Helpers

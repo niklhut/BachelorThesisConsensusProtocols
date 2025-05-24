@@ -38,7 +38,7 @@ public struct InteractiveConsoleClient {
             case "Read Debug":
                 let key = terminal.ask("Enter the key to read:")
                 let peerId = terminal.choose("Choose a peer to read from:", from: client.peers.map(\.id))
-                let response = try await client.getDebug(request: .init(key: key), to: client.peers.first { $0.id == peerId }!)
+                let response = try await client.getDebug(request: .init(key: key), from: client.peers.first { $0.id == peerId }!)
                 if let value = response.value {
                     terminal.output("Value: \(value)".consoleText(color: .green))
                 } else {

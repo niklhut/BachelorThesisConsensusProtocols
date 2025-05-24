@@ -2,6 +2,7 @@ import ArgumentParser
 import RaftCore
 import RaftDistributedActorsTransport
 import RaftGRPCTransport
+import RaftTest
 
 final class Client: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -18,6 +19,11 @@ final class Client: AsyncParsableCommand {
 
     @Flag(help: "Run in interactive mode")
     var interactive: Bool = false
+
+    // MARK: - Functionality Tests
+
+    @Flag(help: "Run functionality tests")
+    var tests: Bool = false
 
     // MARK: - Stress Test
 
@@ -38,7 +44,7 @@ final class Client: AsyncParsableCommand {
     // MARK: - Run
 
     func run() async throws {
-        let client: any RaftClientApplication = if useDistributedActorSystem {
+        let client: any RaftTestApplication = if useDistributedActorSystem {
             RaftDistributedActorClient(peers: peers)
         } else {
             RaftGRPCClient(peers: peers)
@@ -46,6 +52,8 @@ final class Client: AsyncParsableCommand {
 
         if interactive {
             try await client.runInteractiveClient()
+        } else if tests {
+            try await client.runFunctionalityTests()
         } else if stressTest {
             try await client.runStressTest(operations: operations, concurrency: concurrency)
         }

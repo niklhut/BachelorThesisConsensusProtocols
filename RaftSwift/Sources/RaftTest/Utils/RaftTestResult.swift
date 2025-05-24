@@ -1,7 +1,7 @@
 import Foundation
 
 /// Test result for individual test cases
-public struct RaftTestResult {
+public struct RaftTestResult: Sendable {
     public let testName: String
     public let success: Bool
     public let error: Error?

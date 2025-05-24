@@ -4,7 +4,7 @@ import RaftCore
 import RaftTest
 
 /// A Raft client that uses distributed actors for communication
-public final class RaftDistributedActorClient: RaftClientApplication, PeerConnectable {
+public final class RaftDistributedActorClient: RaftTestApplication, PeerConnectable {
     /// The list of peers
     let peers: [Peer]
 
@@ -61,5 +61,14 @@ public final class RaftDistributedActorClient: RaftClientApplication, PeerConnec
         let stressTestClient = StressTestClient(client: client)
 
         try await stressTestClient.run(operations: operations, concurrency: concurrency)
+    }
+
+    public func runFunctionalityTests() async throws {
+        let client = try await setupClient()
+
+        let functionalityTestClient = RaftTestClient(client: client)
+
+        let results = await functionalityTestClient.runTestSuite()
+        await functionalityTestClient.printTestReport(results)
     }
 }

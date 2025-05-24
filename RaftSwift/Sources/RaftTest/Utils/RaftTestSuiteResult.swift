@@ -1,7 +1,7 @@
 import Foundation
 
 /// Test suite results
-public struct RaftTestSuiteResult {
+public struct RaftTestSuiteResult: Sendable {
     public let results: [RaftTestResult]
     public let totalDuration: TimeInterval
 

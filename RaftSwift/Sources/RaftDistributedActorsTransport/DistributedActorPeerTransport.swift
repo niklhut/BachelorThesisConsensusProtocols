@@ -14,6 +14,7 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
     typealias ActorSystem = ClusterSystem
 
     let peers: [Peer]
+    var blockedPeerIds: Set<Peer.ID> = []
     var remoteActors: [Peer: DistributedActorPeerTransport] = [:]
     var listingTask: Task<Void, Never>?
 
@@ -42,6 +43,21 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
         }
 
         self.node = node
+    }
+
+    // MARK: - Peer Discovery
+
+    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorPeerTransport {
+        guard !blockedPeerIds.contains(peer.id) else {
+            actorSystem.log.info("Peer \(peer) is blocked")
+            throw RaftDistributedActorError.peerBlocked(peer: peer)
+        }
+
+        guard let remoteActor = remoteActors[peer] else {
+            throw RaftDistributedActorError.peerNotFound(peer: peer)
+        }
+
+        return remoteActor
     }
 
     // MARK: - RaftPeerTransport

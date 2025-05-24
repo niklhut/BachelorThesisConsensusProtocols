@@ -1,3 +1,3 @@
 public struct BlockPeerRequest: Sendable, Codable {
-    let peerIds: [Int]
+    public let peerIds: [Int]
 }

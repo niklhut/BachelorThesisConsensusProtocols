@@ -1,5 +1,7 @@
+import RaftCore
+
 /// Protocol for a Raft client application
-public protocol RaftClientApplication: Sendable {
+public protocol RaftTestApplication: Sendable {
     /// Initializes the client
     /// - Parameters:
     ///   - peers: The list of peers
@@ -12,4 +14,8 @@ public protocol RaftClientApplication: Sendable {
     /// Runs the stress test
     /// - Throws: Any errors thrown by the client
     func runStressTest(operations: Int, concurrency: Int) async throws
+
+    /// Runs the functionality tests
+    /// - Throws: Any errors thrown by the client or test suite
+    func runFunctionalityTests() async throws
 }

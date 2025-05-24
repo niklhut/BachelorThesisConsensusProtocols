@@ -305,7 +305,7 @@ public actor RaftTestClient<Transport: RaftPartitionTransport> {
             let getRequest = GetRequest(key: "hint-test")
             let getResponse = try await client.get(request: getRequest, from: peer)
 
-            guard getResponse.value != nil else {
+            guard getResponse.value == nil else {
                 throw RaftTestError.operationFailed(operation: "get from non-leader", reason: "Non-leader should reject reads")
             }
 

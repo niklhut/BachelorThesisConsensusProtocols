@@ -9,7 +9,7 @@ public final class RaftDistributedActorClient: RaftClientApplication, PeerConnec
     let peers: [Peer]
 
     /// The logger
-    let logger = Logger(label: "raft.RaftGRPCClient")
+    let logger = Logger(label: "raft.RaftDistributedActorClient")
 
     public init(peers: [Peer]) {
         self.peers = peers

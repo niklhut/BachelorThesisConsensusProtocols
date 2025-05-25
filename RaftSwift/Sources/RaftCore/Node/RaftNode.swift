@@ -7,7 +7,7 @@ public actor RaftNode {
     private let transport: any RaftPeerTransport
     let logger: Logger
 
-    var heartbeatTask: Task<Void, any Error>?
+    private var heartbeatTask: Task<Void, Never>?
 
     var persistentState: PersistentState
     var volatileState: VolatileState
@@ -229,12 +229,28 @@ public actor RaftNode {
 
         let task = Task {
             while !Task.isCancelled {
-                if volatileState.state == .leader {
-                    try await self.sendHeartbeat()
-                    try await Task.sleep(for: .milliseconds(persistentState.config.heartbeatInterval))
-                } else {
-                    try await self.checkElectionTimeout()
-                    try await Task.sleep(for: .milliseconds(persistentState.config.heartbeatInterval * 3))
+                do {
+                    let timeout: Duration
+                    let action: @Sendable () async throws -> Void
+
+                    if volatileState.state == .leader {
+                        timeout = .milliseconds(persistentState.config.heartbeatInterval)
+                        action = self.sendHeartbeat
+                    } else {
+                        timeout = .milliseconds(persistentState.config.heartbeatInterval * 3)
+                        action = self.checkElectionTimeout
+                    }
+
+                    let actionTask = Task {
+                        try await action()
+                    }
+
+                    try await Task.sleep(for: timeout)
+                    actionTask.cancel()
+
+                } catch {
+                    logger.error("Heartbeat task failed: \(error)")
+                    continue
                 }
             }
         }

@@ -39,10 +39,6 @@ public actor NetworkPartitionController<Transport: RaftPartitionTransport> {
     }
 
     func healPartition() async throws {
-        guard partitioned else {
-            return
-        }
-
         try await withThrowingTaskGroup(of: Void.self) { group in
             for peer in peers {
                 group.addTask {

@@ -98,13 +98,13 @@ public actor RaftClient<Transport: RaftClientTransport> {
 
     /// Finds the leader node.
     ///
-    /// - Parameter excluding: The index of the node to exclude from the search.
+    /// - Parameter excludingPeer: The peer to exclude from the search.
     /// - Throws: An error if no leader is found.
     /// - Returns: The leader node.
-    public func findLeader(excluding: Int? = nil) async throws -> Peer {
+    public func findLeader(excludingPeer peerToExclude: Peer? = nil) async throws -> Peer {
         var leader: Peer?
 
-        for (index, peer) in peers.enumerated() where excluding != index {
+        for peer in peers where peerToExclude != peer {
             let response = try await transport.getServerState(
                 of: peer,
                 isolation: #isolation

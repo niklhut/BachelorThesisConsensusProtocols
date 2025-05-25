@@ -318,7 +318,7 @@ public actor RaftTestClient<Transport: RaftPartitionTransport> {
         let leader = try await client.findLeader()
 
         // Test with non-leader nodes
-        for peer in client.peers where peer.id != leader.id {
+        for peer in client.peers where peer != leader {
             let putRequest = PutRequest(key: "hint-test", value: "test-value")
             let putResponse = try await client.put(request: putRequest, to: peer)
 

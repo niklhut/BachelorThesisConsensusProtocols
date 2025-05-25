@@ -32,7 +32,7 @@ final class GRPCClientTransport: RaftClientTransport {
         }
 
         return GetResponse(
-            value: response.value,
+            value: response.hasValue ? response.value : nil,
             leaderHint: leaderHint
         )
     }
@@ -56,7 +56,7 @@ final class GRPCClientTransport: RaftClientTransport {
         }
 
         return GetResponse(
-            value: response.value,
+            value: response.hasValue ? response.value : nil,
             leaderHint: leaderHint
         )
     }

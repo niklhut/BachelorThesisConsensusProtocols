@@ -7,8 +7,5 @@
     "generatedSource": {
         "accessLevelOnImports": false,
         "accessLevel": "internal"
-    },
-    "protoc": {
-        "executablePath": "/opt/homebrew/bin/protoc"
     }
 }

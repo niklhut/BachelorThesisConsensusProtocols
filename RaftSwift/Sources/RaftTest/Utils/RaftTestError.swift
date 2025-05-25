@@ -6,6 +6,7 @@ public enum RaftTestError: Error, LocalizedError {
     case noLeaderFound
     case multipleLeadersFound(count: Int)
     case leaderNotChanged(originalLeader: Peer)
+    case entryReplicated(key: String, peer: Peer, expected: String?, actual: String?)
     case entryNotReplicated(key: String, peer: Peer, expected: String?, actual: String?)
     case inconsistentTerms(terms: [(Peer, Int)])
     case partitionFailed(reason: String)
@@ -21,6 +22,8 @@ public enum RaftTestError: Error, LocalizedError {
             "Multiple leaders found in the cluster: \(count)"
         case let .leaderNotChanged(originalLeader):
             "Leader did not change from original leader: \(originalLeader)"
+        case let .entryReplicated(key, peer, expected, actual):
+            "Entry replicated for key '\(key)' on peer \(peer): expected '\(expected ?? "nil")', got '\(actual ?? "nil")'"
         case let .entryNotReplicated(key, peer, expected, actual):
             "Entry not replicated for key '\(key)' on peer \(peer): expected '\(expected ?? "nil")', got '\(actual ?? "nil")'"
         case let .inconsistentTerms(terms):

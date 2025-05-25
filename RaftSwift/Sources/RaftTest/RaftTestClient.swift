@@ -20,7 +20,7 @@ public actor RaftTestClient<Transport: RaftPartitionTransport> {
         public let maxRetries: Int
 
         public init(
-            electionTimeout: Duration = .seconds(5),
+            electionTimeout: Duration = .seconds(2),
             replicationTimeout: Duration = .seconds(2),
             maxRetries: Int = 3
         ) {
@@ -94,6 +94,7 @@ public actor RaftTestClient<Transport: RaftPartitionTransport> {
             logger.info("✅ Test '\(name)' passed in \(String(format: "%.2f", duration))s")
             return RaftTestResult(testName: name, success: true, duration: duration)
         } catch {
+            try? await afterTest()
             let duration = Date().timeIntervalSince(startTime)
             logger.error("❌ Test '\(name)' failed in \(String(format: "%.2f", duration))s: \(error)")
             return RaftTestResult(testName: name, success: false, error: error, duration: duration)
@@ -167,17 +168,29 @@ public actor RaftTestClient<Transport: RaftPartitionTransport> {
     public func testLeaderFailover() async throws {
         logger.info("Running leader failover test...")
 
-        let originalLeader = try await client.findLeader()
+        // For good measure do it three times, since I had an error where
+        // the heartbeat task cancelled and the leader was not elected, but
+        // this only lead to a repetition of this test failing, the first
+        // run passed.
+        for _ in 0 ..< 3 {
+            let originalLeader = try await client.findLeader()
 
-        try await partitionController.createPartition(group1: [originalLeader], group2: client.peers.filter { $0.id != originalLeader.id })
+            let leaderGroup = [originalLeader]
+            let followerGroup = client.peers.filter { $0.id != originalLeader.id }
 
-        // Wait for new leader to be elected
-        try await Task.sleep(for: config.electionTimeout)
+            try await partitionController.createPartition(group1: leaderGroup, group2: followerGroup)
 
-        let newLeader = try await client.findLeader(excluding: originalLeader.id)
+            // Wait for new leader to be elected
+            try await Task.sleep(for: config.electionTimeout)
 
-        guard newLeader != originalLeader else {
-            throw RaftTestError.operationFailed(operation: "findLeader", reason: "No new leader elected")
+            let newLeader = try await client.findLeader(excludingPeer: originalLeader)
+
+            guard newLeader != originalLeader else {
+                throw RaftTestError.operationFailed(operation: "findLeader", reason: "No new leader elected")
+            }
+
+            try await partitionController.healPartition()
+            try await Task.sleep(for: config.electionTimeout)
         }
     }
 
@@ -253,6 +266,21 @@ public actor RaftTestClient<Transport: RaftPartitionTransport> {
 
             guard getResponse.value == testValue else {
                 throw RaftTestError.entryNotReplicated(
+                    key: testKey,
+                    peer: peer,
+                    expected: testValue,
+                    actual: getResponse.value
+                )
+            }
+        }
+
+        // Verify not replicated in minority partition
+        for peer in minorityGroup {
+            let getRequest = GetRequest(key: testKey)
+            let getResponse = try await client.getDebug(request: getRequest, from: peer)
+
+            guard getResponse.value != testValue else {
+                throw RaftTestError.entryReplicated(
                     key: testKey,
                     peer: peer,
                     expected: testValue,

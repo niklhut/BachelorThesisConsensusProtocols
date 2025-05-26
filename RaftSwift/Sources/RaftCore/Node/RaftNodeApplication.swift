@@ -1,11 +1,16 @@
 /// Protocol for a Raft node application
 public protocol RaftNodeApplication: Sendable {
+    /// The own peer
+    var ownPeer: Peer { get }
+
+    /// The list of peers
+    var peers: [Peer] { get }
+
     /// Initializes the server
     /// - Parameters:
-    ///   - id: The ID of this server
-    ///   - port: The port to listen on for incoming connections
+    ///   - ownPeer: The own peer
     ///   - peers: The list of peers
-    init(id: Int, port: Int, peers: [Peer])
+    init(ownPeer: Peer, peers: [Peer])
 
     /// Starts the node
     func serve() async throws

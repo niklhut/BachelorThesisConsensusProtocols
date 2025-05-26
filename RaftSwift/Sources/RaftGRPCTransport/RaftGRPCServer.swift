@@ -5,29 +5,24 @@ import RaftCore
 
 /// A Raft server that uses gRPC for communication
 public final class RaftGRPCServer: RaftNodeApplication {
-    /// The ID of this server
-    let id: Int
-    /// The port to listen on for incoming connections
-    let port: Int
-    /// The list of peers
-    let peers: [Peer]
+    public let ownPeer: Peer
+    public let peers: [Peer]
+
     /// The logger
     let logger = Logger(label: "raft.RaftGRPCServer")
 
-    public init(id: Int, port: Int, peers: [Peer]) {
-        self.id = id
-        self.port = port
+    public init(ownPeer: Peer, peers: [Peer]) {
+        self.ownPeer = ownPeer
         self.peers = peers
     }
 
     public func serve() async throws {
-        let ownPeer = Peer(id: id, address: "0.0.0.0", port: port)
         let node = RaftNode(
             ownPeer,
             peers: peers,
             config: RaftConfig(),
             transport: GRPCPeerTransport(clientPool: GRPCClientPool(interceptors: [
-                ServerIDInjectionInterceptor(peerID: id),
+                ServerIDInjectionInterceptor(peerID: ownPeer.id),
             ]))
         )
         let peerService = PeerService(node: node)
@@ -38,7 +33,7 @@ public final class RaftGRPCServer: RaftNodeApplication {
 
         let server = GRPCServer(
             transport: .http2NIOPosix(
-                address: .ipv4(host: ownPeer.address, port: ownPeer.port),
+                address: .ipv4(host: "0.0.0.0", port: ownPeer.port),
                 transportSecurity: .plaintext
             ),
             services: [

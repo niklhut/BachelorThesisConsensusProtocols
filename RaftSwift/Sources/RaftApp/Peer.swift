@@ -12,6 +12,9 @@ final class Peer: AsyncParsableCommand {
     @Option(help: "The ID of this server")
     var id: Int
 
+    @Option(help: "The address to listen on for incoming connections")
+    var address: String = "0.0.0.0"
+
     @Option(help: "The port to listen on for incoming connections")
     var port: Int = 10001
 
@@ -22,10 +25,11 @@ final class Peer: AsyncParsableCommand {
     var useDistributedActorSystem: Bool = false
 
     func run() async throws {
+        let ownPeer = RaftCore.Peer(id: id, address: address, port: port)
         let server: any RaftNodeApplication = if useDistributedActorSystem {
-            RaftDistributedActorServer(id: id, port: port, peers: peers)
+            RaftDistributedActorServer(ownPeer: ownPeer, peers: peers)
         } else {
-            RaftGRPCServer(id: id, port: port, peers: peers)
+            RaftGRPCServer(ownPeer: ownPeer, peers: peers)
         }
         try await server.serve()
     }

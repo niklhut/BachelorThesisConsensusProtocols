@@ -48,7 +48,7 @@ RUN find -L "$(swift build --package-path /build -c release --show-bin-path)/" -
 # ================================
 # Run image
 # ================================
-FROM ubuntu:noble
+FROM ubuntu:noble AS run
 
 # Make sure all system packages are up to date, and install only essential packages.
 RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \

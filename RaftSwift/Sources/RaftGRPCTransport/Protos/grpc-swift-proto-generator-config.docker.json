@@ -9,6 +9,6 @@
         "accessLevel": "internal"
     },
     "protoc": {
-        "executablePath": "/opt/homebrew/bin/protoc"
+        "executablePath": "/usr/bin/protoc"
     }
 }

@@ -24,6 +24,8 @@ RUN swift package resolve \
 
 # Copy entire repo into container
 COPY . .
+# Replace the proto generator config file to use the protoc in the container
+RUN cp ./Sources/RaftGRPCTransport/Protos/grpc-swift-proto-generator-config.docker.json ./Sources/RaftGRPCTransport/Protos/grpc-swift-proto-generator-config.json
 
 # Build everything, with optimizations, with static linking, and using jemalloc
 # N.B.: The static version of jemalloc is incompatible with the static Swift runtime.

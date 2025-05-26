@@ -47,9 +47,9 @@ let package = Package(
                 .product(name: "GRPCNIOTransportHTTP2", package: "grpc-swift-nio-transport"),
                 .product(name: "GRPCProtobuf", package: "grpc-swift-protobuf"),
             ],
-            plugins: [
+            exclude: ["Protos/grpc-swift-proto-generator-config.docker.json"], plugins: [
                 .plugin(name: "GRPCProtobufGenerator", package: "grpc-swift-protobuf"),
-            ]
+            ],
         ),
         .target(
             name: "RaftDistributedActorsTransport",

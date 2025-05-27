@@ -100,11 +100,9 @@ public actor RaftNode {
         } else if request.term > persistentState.currentTerm {
             logger.info("Received higher term \(request.term), becoming follower of \(request.leaderID)")
             becomeFollower(newTerm: request.term, currentLeaderId: request.leaderID)
-        }
-        // Own term and term of leader are the same
-
-        // If the node is a candidate, it should become a follower
-        if volatileState.state == .candidate {
+        } else if volatileState.state == .candidate {
+            // Own term and term of leader are the same
+            // If the node is a candidate, it should become a follower
             becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
         } else if volatileState.currentLeaderID != request.leaderID {
             logger.info("Received append entries from a different leader \(request.leaderID), becoming follower of \(request.leaderID)")
@@ -215,7 +213,7 @@ public actor RaftNode {
     /// - Parameters:
     ///   - request: The GetRequest to handle.
     /// - Returns: The GetResponse.
-    public func get(request: GetRequest) async throws -> GetResponse {
+    public func get(request: GetRequest) async -> GetResponse {
         guard volatileState.state == .leader else {
             return GetResponse(leaderHint: persistentState.peers.first { $0.id == volatileState.currentLeaderID })
         }
@@ -228,14 +226,14 @@ public actor RaftNode {
     /// - Parameters:
     ///   - request: The GetRequest to handle.
     /// - Returns: The GetResponse.
-    public func getDebug(request: GetRequest) async throws -> GetResponse {
+    public func getDebug(request: GetRequest) async -> GetResponse {
         GetResponse(value: persistentState.stateMachine[request.key])
     }
 
     /// Handles a GetState RPC.
     ///
     /// - Returns: The ServerStateResponse.
-    public func getState() async throws -> ServerStateResponse {
+    public func getState() async -> ServerStateResponse {
         ServerStateResponse(
             id: persistentState.ownPeer.id,
             state: volatileState.state,
@@ -245,7 +243,7 @@ public actor RaftNode {
     /// Handles a GetTerm RPC.
     ///
     /// - Returns: The ServerTermResponse.
-    public func getTerm() async throws -> ServerTermResponse {
+    public func getTerm() async -> ServerTermResponse {
         ServerTermResponse(
             id: persistentState.ownPeer.id,
             term: persistentState.currentTerm,

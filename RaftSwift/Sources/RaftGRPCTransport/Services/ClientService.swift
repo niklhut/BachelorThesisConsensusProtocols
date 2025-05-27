@@ -21,7 +21,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
     }
 
     func get(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
-        let response = try await node.get(request: GetRequest(key: request.key))
+        let response = await node.get(request: GetRequest(key: request.key))
 
         return .with { grpcResponse in
             if let value = response.value {
@@ -34,7 +34,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
     }
 
     func getDebug(request: Raft_GetRequest, context: ServerContext) async throws -> Raft_GetResponse {
-        let response = try await node.getDebug(request: GetRequest(key: request.key))
+        let response = await node.getDebug(request: GetRequest(key: request.key))
 
         return .with { grpcResponse in
             if let value = response.value {
@@ -47,7 +47,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
     }
 
     func getServerState(request: Google_Protobuf_Empty, context: ServerContext) async throws -> Raft_ServerStateResponse {
-        let response = try await node.getState()
+        let response = await node.getState()
 
         return .with { grpcResponse in
             grpcResponse.id = UInt32(response.id)
@@ -56,7 +56,7 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
     }
 
     func getServerTerm(request: Google_Protobuf_Empty, context: ServerContext) async throws -> Raft_ServerTermResponse {
-        let response = try await node.getTerm()
+        let response = await node.getTerm()
 
         return .with { grpcResponse in
             grpcResponse.term = UInt64(response.term)

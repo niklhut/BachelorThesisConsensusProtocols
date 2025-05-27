@@ -23,7 +23,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
     func get(
         _ request: GetRequest,
         from peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> GetResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -33,7 +33,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
     func getDebug(
         _ request: GetRequest,
         from peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> GetResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -43,7 +43,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
     func put(
         _ request: PutRequest,
         to peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> PutResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -52,7 +52,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
 
     func getServerState(
         of peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> ServerStateResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -61,7 +61,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
 
     func getTerm(
         of peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> ServerTermResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -72,14 +72,14 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
 extension DistributedActorPeerTransport {
     distributed func get(
         _ request: GetRequest,
-    ) async throws -> GetResponse {
-        try await node.get(request: request)
+    ) async -> GetResponse {
+        await node.get(request: request)
     }
 
     distributed func getDebug(
         _ request: GetRequest,
-    ) async throws -> GetResponse {
-        try await node.getDebug(request: request)
+    ) async -> GetResponse {
+        await node.getDebug(request: request)
     }
 
     distributed func put(
@@ -88,11 +88,11 @@ extension DistributedActorPeerTransport {
         try await node.put(request: request)
     }
 
-    distributed func getServerState() async throws -> ServerStateResponse {
-        try await node.getState()
+    distributed func getServerState() async -> ServerStateResponse {
+        await node.getState()
     }
 
-    distributed func getTerm() async throws -> ServerTermResponse {
-        try await node.getTerm()
+    distributed func getTerm() async -> ServerTermResponse {
+        await node.getTerm()
     }
 }

@@ -53,7 +53,7 @@ public actor RaftNode {
     /// - Parameters:
     ///   - request: The RequestVoteRequest to handle.
     /// - Returns: The RequestVoteResponse.
-    public func requestVote(request: RequestVoteRequest) async throws -> RequestVoteResponse {
+    public func requestVote(request: RequestVoteRequest) async -> RequestVoteResponse {
         logger.trace("Received request vote from \(request.candidateID)")
         resetElectionTimer()
 
@@ -88,7 +88,7 @@ public actor RaftNode {
     /// - Parameters:
     ///   - request: The AppendEntriesRequest to handle.
     /// - Returns: The AppendEntriesResponse.
-    public func appendEntries(request: AppendEntriesRequest) async throws -> AppendEntriesResponse {
+    public func appendEntries(request: AppendEntriesRequest) async -> AppendEntriesResponse {
         logger.trace("Received append entries from \(request.leaderID)")
         resetElectionTimer()
 

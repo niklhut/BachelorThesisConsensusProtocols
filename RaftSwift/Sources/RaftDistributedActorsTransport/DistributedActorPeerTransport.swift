@@ -65,7 +65,7 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
     func appendEntries(
         _ request: AppendEntriesRequest,
         to peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> AppendEntriesResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -75,17 +75,16 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
     /// Handles append entries requests
     /// - Parameter request: The append entries request
     /// - Returns: The append entries response
-    /// - Throws: An error if the request could not be processed
     distributed func getAppendEntries(
         _ request: AppendEntriesRequest,
-    ) async throws -> AppendEntriesResponse {
-        try await node.appendEntries(request: request)
+    ) async -> AppendEntriesResponse {
+        await node.appendEntries(request: request)
     }
 
     func requestVote(
         _ request: RequestVoteRequest,
         to peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> RequestVoteResponse {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -95,10 +94,9 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
     /// Handles request vote requests
     /// - Parameter request: The request vote request
     /// - Returns: The request vote response
-    /// - Throws: An error if the request could not be processed
     distributed func getRequestVote(
         _ request: RequestVoteRequest,
-    ) async throws -> RequestVoteResponse {
-        try await node.requestVote(request: request)
+    ) async -> RequestVoteResponse {
+        await node.requestVote(request: request)
     }
 }

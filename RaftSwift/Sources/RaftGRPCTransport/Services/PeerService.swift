@@ -9,11 +9,11 @@ struct PeerService: Raft_RaftPeer.SimpleServiceProtocol {
     }
 
     func requestVote(request: Raft_RequestVoteRequest, context: ServerContext) async throws -> Raft_RequestVoteResponse {
-        let response = try await node.requestVote(request: RequestVoteRequest(
+        let response = await node.requestVote(request: RequestVoteRequest(
             term: Int(request.term),
             candidateID: Int(request.candidateID),
             lastLogIndex: Int(request.lastLogIndex),
-            lastLogTerm: Int(request.lastLogTerm)
+            lastLogTerm: Int(request.lastLogTerm),
         ))
 
         return .with { grpcResponse in
@@ -23,13 +23,13 @@ struct PeerService: Raft_RaftPeer.SimpleServiceProtocol {
     }
 
     func appendEntries(request: Raft_AppendEntriesRequest, context: ServerContext) async throws -> Raft_AppendEntriesResponse {
-        let response = try await node.appendEntries(request: AppendEntriesRequest(
+        let response = await node.appendEntries(request: AppendEntriesRequest(
             term: Int(request.term),
             leaderID: Int(request.leaderID),
             prevLogIndex: Int(request.prevLogIndex),
             prevLogTerm: Int(request.prevLogTerm),
             entries: request.entries.map { LogEntry(term: Int($0.term), key: $0.key, value: $0.value) },
-            leaderCommit: Int(request.leaderCommit)
+            leaderCommit: Int(request.leaderCommit),
         ))
 
         return .with { grpcResponse in

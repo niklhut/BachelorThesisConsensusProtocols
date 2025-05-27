@@ -4,21 +4,35 @@ import Logging
 public actor RaftNode {
     // MARK: - Properties
 
+    /// The transport layer for peer-to-peer communication.
     private let transport: any RaftPeerTransport
+    /// The logger for logging messages.
     let logger: Logger
 
+    /// The task for the heartbeat/election loop.
     private var heartbeatTask: Task<Void, Never>?
 
+    /// The persistent state of the node.
     var persistentState: PersistentState
+    /// The volatile state of the node.
     var volatileState: VolatileState
+    /// The leader state of the node.
     var leaderState: LeaderState
 
+    /// The number of votes needed to become the leader or commit a log entry.
     var majority: Int {
         (persistentState.peers.count + 1) / 2 + 1
     }
 
     // MARK: - Init
 
+    /// Initializes a new instance of the RaftNode class.
+    ///
+    /// - Parameters:
+    ///   - ownPeer: The own peer.
+    ///   - peers: The list of peers.
+    ///   - config: The configuration.
+    ///   - transport: The transport layer.
     public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport) {
         self.transport = transport
         logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
@@ -26,7 +40,7 @@ public actor RaftNode {
         persistentState = PersistentState(
             ownPeer: ownPeer,
             peers: peers,
-            config: config
+            config: config,
         )
         volatileState = VolatileState()
         leaderState = LeaderState()
@@ -34,6 +48,11 @@ public actor RaftNode {
 
     // MARK: - Server RPCs
 
+    /// Handles a RequestVote RPC.
+    ///
+    /// - Parameters:
+    ///   - request: The RequestVoteRequest to handle.
+    /// - Returns: The RequestVoteResponse.
     public func requestVote(request: RequestVoteRequest) async throws -> RequestVoteResponse {
         logger.trace("Received request vote from \(request.candidateID)")
         resetElectionTimer()
@@ -41,7 +60,7 @@ public actor RaftNode {
         if request.term < persistentState.currentTerm {
             return RequestVoteResponse(
                 term: persistentState.currentTerm,
-                voteGranted: false
+                voteGranted: false,
             )
         } else if request.term > persistentState.currentTerm {
             logger.info("Received higher term \(request.term), becoming follower of \(request.candidateID)")
@@ -54,16 +73,21 @@ public actor RaftNode {
 
             return RequestVoteResponse(
                 term: persistentState.currentTerm,
-                voteGranted: true
+                voteGranted: true,
             )
         }
 
         return RequestVoteResponse(
             term: persistentState.currentTerm,
-            voteGranted: false
+            voteGranted: false,
         )
     }
 
+    /// Handles an AppendEntries RPC.
+    ///
+    /// - Parameters:
+    ///   - request: The AppendEntriesRequest to handle.
+    /// - Returns: The AppendEntriesResponse.
     public func appendEntries(request: AppendEntriesRequest) async throws -> AppendEntriesResponse {
         logger.trace("Received append entries from \(request.leaderID)")
         resetElectionTimer()
@@ -71,7 +95,7 @@ public actor RaftNode {
         if request.term < persistentState.currentTerm {
             return AppendEntriesResponse(
                 term: persistentState.currentTerm,
-                success: false
+                success: false,
             )
         } else if request.term > persistentState.currentTerm {
             logger.info("Received higher term \(request.term), becoming follower of \(request.leaderID)")
@@ -94,7 +118,7 @@ public actor RaftNode {
 
                 return AppendEntriesResponse(
                     term: persistentState.currentTerm,
-                    success: false
+                    success: false,
                 )
             }
 
@@ -105,7 +129,7 @@ public actor RaftNode {
 
                 return AppendEntriesResponse(
                     term: persistentState.currentTerm,
-                    success: false
+                    success: false,
                 )
             }
         }
@@ -165,12 +189,17 @@ public actor RaftNode {
 
         return AppendEntriesResponse(
             term: persistentState.currentTerm,
-            success: true
+            success: true,
         )
     }
 
     // MARK: - Client RPCs
 
+    /// Handles a Put RPC.
+    ///
+    /// - Parameters:
+    ///   - request: The PutRequest to handle.
+    /// - Returns: The PutResponse.
     public func put(request: PutRequest) async throws -> PutResponse {
         guard volatileState.state == .leader else {
             return PutResponse(success: false, leaderHint: persistentState.peers.first { $0.id == volatileState.currentLeaderID })
@@ -181,6 +210,11 @@ public actor RaftNode {
         return PutResponse(success: true)
     }
 
+    /// Handles a Get RPC.
+    ///
+    /// - Parameters:
+    ///   - request: The GetRequest to handle.
+    /// - Returns: The GetResponse.
     public func get(request: GetRequest) async throws -> GetResponse {
         guard volatileState.state == .leader else {
             return GetResponse(leaderHint: persistentState.peers.first { $0.id == volatileState.currentLeaderID })
@@ -189,21 +223,32 @@ public actor RaftNode {
         return GetResponse(value: persistentState.stateMachine[request.key])
     }
 
+    /// Handles a GetDebug RPC.
+    ///
+    /// - Parameters:
+    ///   - request: The GetRequest to handle.
+    /// - Returns: The GetResponse.
     public func getDebug(request: GetRequest) async throws -> GetResponse {
         GetResponse(value: persistentState.stateMachine[request.key])
     }
 
+    /// Handles a GetState RPC.
+    ///
+    /// - Returns: The ServerStateResponse.
     public func getState() async throws -> ServerStateResponse {
         ServerStateResponse(
             id: persistentState.ownPeer.id,
-            state: volatileState.state
+            state: volatileState.state,
         )
     }
 
+    /// Handles a GetTerm RPC.
+    ///
+    /// - Returns: The ServerTermResponse.
     public func getTerm() async throws -> ServerTermResponse {
         ServerTermResponse(
             id: persistentState.ownPeer.id,
-            term: persistentState.currentTerm
+            term: persistentState.currentTerm,
         )
     }
 
@@ -312,7 +357,7 @@ public actor RaftNode {
                 group.addTask {
                     await self.requestVoteFromPeer(
                         peer: peer,
-                        persistentStateSnapshot: persistentStateSnapshot
+                        persistentStateSnapshot: persistentStateSnapshot,
                     )
                 }
             }
@@ -348,7 +393,7 @@ public actor RaftNode {
 
     func requestVoteFromPeer(
         peer: Peer,
-        persistentStateSnapshot: PersistentState
+        persistentStateSnapshot: PersistentState,
     ) async -> (Int, RequestVoteResponse) {
         logger.trace("Requesting vote from \(peer.id)")
         do {
@@ -356,12 +401,12 @@ public actor RaftNode {
                 term: persistentStateSnapshot.currentTerm,
                 candidateID: persistentStateSnapshot.ownPeer.id,
                 lastLogIndex: persistentStateSnapshot.log.count,
-                lastLogTerm: persistentStateSnapshot.log.last?.term ?? 0
+                lastLogTerm: persistentStateSnapshot.log.last?.term ?? 0,
             )
             let response = try await transport.requestVote(
                 voteRequest,
                 to: peer,
-                isolation: #isolation
+                isolation: #isolation,
             )
             return (peer.id, response)
         } catch {
@@ -408,7 +453,7 @@ public actor RaftNode {
                             replicationTracker: replicationTracker,
                             persistentStateSnapshot: persistentStateSnapshot,
                             volatileStateSnapshot: volatileStateSnapshot,
-                            entries: entries
+                            entries: entries,
                         )
                     }
                 }
@@ -443,7 +488,7 @@ public actor RaftNode {
         replicationTracker: ReplicationTracker,
         persistentStateSnapshot: PersistentState,
         volatileStateSnapshot: VolatileState,
-        entries: [LogEntry]
+        entries: [LogEntry],
     ) async throws {
         var retryCount = 0
 
@@ -495,7 +540,7 @@ public actor RaftNode {
                     prevLogIndex: peerPrevLogIndex,
                     prevLogTerm: peerPrevLogTerm,
                     entries: entriesToSend,
-                    leaderCommit: volatileStateSnapshot.commitIndex
+                    leaderCommit: volatileStateSnapshot.commitIndex,
                 )
 
                 let result = try await transport.appendEntries(appendEntriesRequest, to: peer, isolation: #isolation)

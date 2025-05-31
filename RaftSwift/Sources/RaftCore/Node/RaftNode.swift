@@ -54,7 +54,10 @@ public actor RaftNode {
     ///   - request: The RequestVoteRequest to handle.
     /// - Returns: The RequestVoteResponse.
     public func requestVote(request: RequestVoteRequest) async -> RequestVoteResponse {
-        logger.trace("Received request vote from \(request.candidateID)")
+        logger.trace("Received request vote from \(request.candidateID)", metadata: [
+            "term": request.term,
+            "myTerm": persistentState.currentTerm,
+        ])
         resetElectionTimer()
 
         if request.term < persistentState.currentTerm {
@@ -105,7 +108,7 @@ public actor RaftNode {
             // If the node is a candidate, it should become a follower
             becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
         } else if volatileState.currentLeaderID != request.leaderID {
-            logger.info("Received append entries from a different leader \(request.leaderID), becoming follower of \(request.leaderID)")
+            logger.info("Received append entries from a different leader, becoming follower of \(request.leaderID)")
             becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
         }
 
@@ -389,6 +392,12 @@ public actor RaftNode {
         }
     }
 
+    /// Requests a vote from a peer.
+    ///
+    /// - Parameters:
+    ///   - peer: The peer to request a vote from.
+    ///   - persistentStateSnapshot: The persistent state snapshot to use for the request.
+    /// - Returns: A tuple containing the peer ID and the vote response.
     func requestVoteFromPeer(
         peer: Peer,
         persistentStateSnapshot: PersistentState,

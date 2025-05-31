@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/rand"
 	"sort"
 	"sync"
@@ -50,8 +51,8 @@ type RaftNode struct {
 
 // Majority returns the number of votes needed to become leader or commit a log entry.
 func (rn *RaftNode) Majority() int {
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
 	return (len(rn.persistentState.Peers)+1)/2 + 1
 }
 
@@ -293,16 +294,20 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 // -- Client RPCs ---
 
 func (rn *RaftNode) Put(ctx context.Context, request util.PutRequest) (util.PutResponse, error) {
+	rn.mu.RLock()
 	if rn.volatileState.State != util.ServerStateLeader {
+		rn.mu.RUnlock()
 		return util.PutResponse{
 			Success:    false,
 			LeaderHint: rn.firstPeerWithID(*rn.volatileState.CurrentLeaderID),
 		}, nil
 	}
+	term := rn.persistentState.CurrentTerm
+	rn.mu.RUnlock()
 
 	err := rn.replicateLog([]util.LogEntry{
 		{
-			Term:  rn.persistentState.CurrentTerm,
+			Term:  term,
 			Key:   &request.Key,
 			Value: request.Value,
 		},
@@ -320,6 +325,9 @@ func (rn *RaftNode) Put(ctx context.Context, request util.PutRequest) (util.PutR
 }
 
 func (rn *RaftNode) Get(ctx context.Context, request util.GetRequest) util.GetResponse {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
 	if rn.volatileState.State != util.ServerStateLeader {
 		return util.GetResponse{
 			LeaderHint: rn.firstPeerWithID(*rn.volatileState.CurrentLeaderID),
@@ -336,6 +344,9 @@ func (rn *RaftNode) Get(ctx context.Context, request util.GetRequest) util.GetRe
 }
 
 func (rn *RaftNode) GetDebug(ctx context.Context, request util.GetRequest) util.GetResponse {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
 	if val, ok := rn.persistentState.StateMachine[request.Key]; ok {
 		return util.GetResponse{
 			Value: &val,
@@ -346,6 +357,9 @@ func (rn *RaftNode) GetDebug(ctx context.Context, request util.GetRequest) util.
 }
 
 func (rn *RaftNode) GetState(ctx context.Context) util.ServerStateResponse {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
 	return util.ServerStateResponse{
 		ID:    rn.persistentState.OwnPeer.ID,
 		State: rn.volatileState.State,
@@ -353,6 +367,9 @@ func (rn *RaftNode) GetState(ctx context.Context) util.ServerStateResponse {
 }
 
 func (rn *RaftNode) GetTerm(ctx context.Context) util.ServerTermResponse {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
 	return util.ServerTermResponse{
 		ID:   rn.persistentState.OwnPeer.ID,
 		Term: rn.persistentState.CurrentTerm,
@@ -409,11 +426,16 @@ func (rn *RaftNode) heartbeatLoop(ctx context.Context) {
 		var timeout time.Duration
 		var action func() error
 
-		if rn.volatileState.State == util.ServerStateLeader {
-			timeout = time.Duration(rn.persistentState.Config.HeartbeatIntervalMs) * time.Millisecond
+		rn.mu.RLock()
+		state := rn.volatileState.State
+		heartbeatInterval := rn.persistentState.Config.HeartbeatIntervalMs
+		rn.mu.RUnlock()
+
+		if state == util.ServerStateLeader {
+			timeout = time.Duration(heartbeatInterval) * time.Millisecond
 			action = rn.sendHeartbeat
 		} else {
-			timeout = time.Duration(rn.persistentState.Config.HeartbeatIntervalMs) * time.Millisecond
+			timeout = time.Duration(heartbeatInterval) * time.Millisecond
 			action = rn.checkElectionTimeout
 		}
 
@@ -443,7 +465,11 @@ func (rn *RaftNode) heartbeatLoop(ctx context.Context) {
 
 // Sends a heartbeat to all followers.
 func (rn *RaftNode) sendHeartbeat() error {
-	if rn.volatileState.State != util.ServerStateLeader {
+	rn.mu.RLock()
+	state := rn.volatileState.State
+	rn.mu.RUnlock()
+
+	if state != util.ServerStateLeader {
 		return util.NotLeaderError
 	}
 
@@ -494,6 +520,7 @@ type VoteResult struct {
 
 // Requests votes from all peers.
 func (rn *RaftNode) requestVotes() error {
+	rn.mu.RLock()
 	rn.logger.Debug("Requesting votes from peers: %+v",
 		slog.Any("peers", rn.persistentState.Peers),
 	)
@@ -502,8 +529,21 @@ func (rn *RaftNode) requestVotes() error {
 	var votes = 1
 	var requiredVotes = rn.Majority()
 
-	// Create a snapshot of the persistent state to avoid race conditions
-	persistentStateSnapshot := rn.persistentState
+	// Create a deep copy snapshot of the persistent state to avoid race conditions
+	persistentStateSnapshot := util.PersistentState{
+		OwnPeer:      rn.persistentState.OwnPeer,
+		Peers:        make([]util.Peer, len(rn.persistentState.Peers)),
+		Config:       rn.persistentState.Config,
+		CurrentTerm:  rn.persistentState.CurrentTerm,
+		Log:          make([]util.LogEntry, len(rn.persistentState.Log)),
+		StateMachine: make(map[string]string),
+		Snapshot:     rn.persistentState.Snapshot,
+		VotedFor:     rn.persistentState.VotedFor,
+	}
+	copy(persistentStateSnapshot.Peers, rn.persistentState.Peers)
+	copy(persistentStateSnapshot.Log, rn.persistentState.Log)
+	maps.Copy(persistentStateSnapshot.StateMachine, rn.persistentState.StateMachine)
+	rn.mu.RUnlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -576,8 +616,8 @@ func (rn *RaftNode) requestVotes() error {
 		rn.mu.Unlock()
 	}
 
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
 
 	if rn.volatileState.State == util.ServerStateCandidate {
 		rn.logger.Info("Election failed, received votes: %d / %d",
@@ -633,7 +673,21 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 
 	rn.resetElectionTimer()
 
-	persistentStateSnapshot := rn.persistentState
+	// Create deep copies to avoid race conditions
+	persistentStateSnapshot := util.PersistentState{
+		OwnPeer:      rn.persistentState.OwnPeer,
+		Peers:        make([]util.Peer, len(rn.persistentState.Peers)),
+		Config:       rn.persistentState.Config,
+		CurrentTerm:  rn.persistentState.CurrentTerm,
+		Log:          make([]util.LogEntry, len(rn.persistentState.Log)),
+		StateMachine: make(map[string]string),
+		Snapshot:     rn.persistentState.Snapshot,
+		VotedFor:     rn.persistentState.VotedFor,
+	}
+	copy(persistentStateSnapshot.Peers, rn.persistentState.Peers)
+	copy(persistentStateSnapshot.Log, rn.persistentState.Log)
+	maps.Copy(persistentStateSnapshot.StateMachine, rn.persistentState.StateMachine)
+
 	volatileStateSnapshot := rn.volatileState
 
 	// Add log entries to log
@@ -864,9 +918,7 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 
 	// Add own match index (implicitly the end of the log)
 	allMatchIndices := make(map[int]int)
-	for k, v := range rn.leaderState.MatchIndex {
-		allMatchIndices[k] = v
-	}
+	maps.Copy(allMatchIndices, rn.leaderState.MatchIndex)
 	allMatchIndices[rn.persistentState.OwnPeer.ID] = len(rn.persistentState.Log)
 
 	// Calculate new commit index based on majority match indices

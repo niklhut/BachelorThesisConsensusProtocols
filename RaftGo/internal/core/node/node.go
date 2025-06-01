@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"maps"
 	"math/rand"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -84,9 +85,15 @@ func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, t
 		MatchIndex: make(map[int]int),
 	}
 
+	loggerOptions := slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	}
+	handler := slog.NewTextHandler(os.Stdout, &loggerOptions)
+	logger := slog.New(handler).With(slog.Int("nodeID", ownPeer.ID))
+
 	rn := &RaftNode{
 		transport:       transport,
-		logger:          slog.Default().With(slog.Int("nodeID", ownPeer.ID)),
+		logger:          logger,
 		persistentState: persistentState,
 		volatileState:   volatileState,
 		leaderState:     leaderState,
@@ -105,8 +112,8 @@ func (rn *RaftNode) HandleRequestVote(ctx context.Context, req util.RequestVoteR
 		slog.Int("myTerm", rn.persistentState.CurrentTerm),
 	)
 
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.ackquireLockWithLogger("handleRequestVote")
+	defer rn.releaseLockWithLogger("handleRequestVote")
 
 	rn.resetElectionTimer()
 
@@ -145,8 +152,8 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 		slog.Int("leaderID", req.LeaderID),
 	)
 
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.ackquireLockWithLogger("handleAppendEntries")
+	defer rn.releaseLockWithLogger("handleAppendEntries")
 
 	rn.resetElectionTimer()
 
@@ -481,13 +488,13 @@ func (rn *RaftNode) resetElectionTimer() {
 // Starts an election.
 func (rn *RaftNode) startElection() error {
 	rn.logger.Debug("Starting election")
-	rn.mu.Lock()
+	rn.ackquireLockWithLogger("startElection")
 	rn.becomeCandidate()
 
 	// Reset election timeout
 	rn.volatileState.ElectionTimeout = rand.Intn(rn.persistentState.Config.ElectionTimeoutMaxMs-rn.persistentState.Config.ElectionTimeoutMinMs+1) + rn.persistentState.Config.ElectionTimeoutMinMs
 	rn.resetElectionTimer()
-	rn.mu.Unlock()
+	rn.releaseLockWithLogger("startElection")
 
 	// Request votes from other nodes
 	return rn.requestVotes()
@@ -561,7 +568,7 @@ func (rn *RaftNode) requestVotes() error {
 			slog.Bool("voteGranted", result.vote.VoteGranted),
 		)
 
-		rn.mu.Lock()
+		rn.ackquireLockWithLogger("requestVotes")
 
 		// Check if the peer has a higher term
 		if result.vote.Term > rn.persistentState.CurrentTerm {
@@ -643,11 +650,11 @@ func (rn *RaftNode) requestVoteFromPeer(ctx context.Context, peer util.Peer, per
 // -- Log Replication --
 
 func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
-	rn.mu.Lock()
+	rn.ackquireLockWithLogger("replicateLog 1")
 
 	if rn.volatileState.State != util.ServerStateLeader {
-		rn.mu.Unlock()
 		rn.logger.Info("Not a leader, not replicating log")
+		rn.releaseLockWithLogger("replicateLog 1")
 		return util.NotLeaderError
 	}
 
@@ -672,7 +679,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 
 	// Add log entries to log
 	rn.persistentState.Log = append(rn.persistentState.Log, entries...)
-	rn.mu.Unlock()
+	rn.releaseLockWithLogger("replicateLog 1")
 
 	majority := rn.Majority()
 
@@ -684,8 +691,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 
 	replicationTracker.MarkSuccess(persistentStateSnapshot.OwnPeer.ID)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx, _ := context.WithCancel(context.Background())
 
 	// Start replication to all peers concurrently
 	var wg sync.WaitGroup
@@ -717,11 +723,13 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 	)
 
 	// Once majority has replicated the log, update commit index and apply committed entries
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.mu.RLock()
+	state := rn.volatileState.State
+	term := rn.persistentState.CurrentTerm
+	rn.mu.RUnlock()
 
-	if rn.volatileState.State == util.ServerStateLeader &&
-		rn.persistentState.CurrentTerm == persistentStateSnapshot.CurrentTerm {
+	if state == util.ServerStateLeader &&
+		term == persistentStateSnapshot.CurrentTerm {
 		rn.updateCommitIndexAndApply()
 	}
 
@@ -747,26 +755,26 @@ func (rn *RaftNode) replicateLogToPeer(
 		default:
 		}
 
-		rn.mu.Lock()
+		rn.ackquireLockWithLogger("replicateLogToPeer")
 
 		// Check conditions for continuing
 		if rn.volatileState.State != util.ServerStateLeader ||
 			rn.persistentState.CurrentTerm != persistentStateSnapshot.CurrentTerm ||
 			rn.firstPeerWithID(peer.ID) == nil {
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("replicateLogToPeer")
 			return nil
 		}
-		rn.mu.Unlock()
+		rn.releaseLockWithLogger("replicateLogToPeer")
 
 		// Check if already successful
 		if replicationTracker.IsSuccessful(peer.ID) {
 			return nil
 		}
 
-		rn.mu.Lock()
+		rn.ackquireLockWithLogger("replicateLogToPeer 2")
 		currentMatchIndex := rn.leaderState.MatchIndex[peer.ID]
 		if currentMatchIndex > targetEndIndex {
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			replicationTracker.MarkSuccess(peer.ID)
 			return nil
 		}
@@ -794,11 +802,11 @@ func (rn *RaftNode) replicateLogToPeer(
 		} else {
 			// Peer's nextIndex is beyond what we expect - reset and retry
 			rn.leaderState.NextIndex[peer.ID] = len(persistentStateSnapshot.Log) + 1
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			continue
 		}
 
-		rn.mu.Unlock()
+		rn.releaseLockWithLogger("replicateLogToPeer 2")
 
 		rn.logger.Debug("Sending append entries to %d with nextIndex %d, prevLogIndex %d, prevLogTerm %d, entriesCount %d",
 			slog.Int("peerId", peer.ID),
@@ -843,7 +851,7 @@ func (rn *RaftNode) replicateLogToPeer(
 		default:
 		}
 
-		rn.mu.Lock()
+		rn.ackquireLockWithLogger("replicateLogToPeer 3")
 
 		if result.Term > rn.persistentState.CurrentTerm {
 			rn.logger.Info("Received higher term %d, becoming follower of %d",
@@ -851,7 +859,7 @@ func (rn *RaftNode) replicateLogToPeer(
 				slog.Int("peerId", peer.ID),
 			)
 			rn.becomeFollower(result.Term, &peer.ID)
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			return nil
 		}
 
@@ -864,12 +872,12 @@ func (rn *RaftNode) replicateLogToPeer(
 			rn.leaderState.MatchIndex[peer.ID] = newMatchIndex
 			rn.leaderState.NextIndex[peer.ID] = newMatchIndex + 1
 
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			return nil
 		} else {
 			// Log inconsistency, decrement nextIndex and retry
 			rn.leaderState.NextIndex[peer.ID] = max(1, rn.leaderState.NextIndex[peer.ID]-1)
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			retryCount++
 
 			rn.logger.Info("Append entries failed for %d, retrying with earlier index %d",
@@ -891,8 +899,11 @@ func (rn *RaftNode) replicateLogToPeer(
 }
 
 func (rn *RaftNode) updateCommitIndexAndApply() {
+	rn.mu.RLock()
+
 	// Safety check: ensure we are still leader
 	if rn.volatileState.State != util.ServerStateLeader {
+		rn.mu.RUnlock()
 		return
 	}
 
@@ -900,6 +911,8 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 	allMatchIndices := make(map[int]int)
 	maps.Copy(allMatchIndices, rn.leaderState.MatchIndex)
 	allMatchIndices[rn.persistentState.OwnPeer.ID] = len(rn.persistentState.Log)
+
+	rn.mu.RUnlock()
 
 	// Calculate new commit index based on majority match indices
 	indices := make([]int, 0, len(allMatchIndices))
@@ -909,6 +922,8 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 	sort.Sort(sort.Reverse(sort.IntSlice(indices)))
 
 	majorityIndex := indices[rn.Majority()-1]
+	rn.mu.Lock()
+	defer rn.mu.Unlock()
 	oldCommitIndex := rn.volatileState.CommitIndex
 
 	// Only update commit index if it's in the current term
@@ -930,23 +945,23 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 }
 
 // Applies the committed entries to the state machine.
-func (r *RaftNode) applyCommittedEntries() {
-	for r.volatileState.LastApplied < r.volatileState.CommitIndex {
-		entry := r.persistentState.Log[r.volatileState.LastApplied]
+func (rn *RaftNode) applyCommittedEntries() {
+	for rn.volatileState.LastApplied < rn.volatileState.CommitIndex {
+		entry := rn.persistentState.Log[rn.volatileState.LastApplied]
 
 		if entry.Key != nil {
-			oldValue := r.persistentState.StateMachine[*entry.Key]
-			r.persistentState.StateMachine[*entry.Key] = *entry.Value
+			oldValue := rn.persistentState.StateMachine[*entry.Key]
+			rn.persistentState.StateMachine[*entry.Key] = *entry.Value
 
-			r.logger.Debug("Applied entry at index %d: key=%s, value=%s, previousValue=%s",
-				slog.Int("index", r.volatileState.LastApplied+1),
+			rn.logger.Debug("Applied entry at index %d: key=%s, value=%s, previousValue=%s",
+				slog.Int("index", rn.volatileState.LastApplied+1),
 				slog.String("key", *entry.Key),
 				slog.String("value", *entry.Value),
 				slog.String("previousValue", oldValue),
 			)
 		}
 
-		r.volatileState.LastApplied++
+		rn.volatileState.LastApplied++
 	}
 }
 
@@ -977,7 +992,10 @@ func (rn *RaftNode) isLogAtLeastAsUpToDate(lastLogIndex int, lastLogTerm int) bo
 
 // Stop leading.
 func (rn *RaftNode) stopLeading() {
-	rn.leaderState = util.LeaderState{}
+	rn.leaderState = util.LeaderState{
+		NextIndex:  make(map[int]int),
+		MatchIndex: make(map[int]int),
+	}
 }
 
 // Become follower.
@@ -1025,4 +1043,15 @@ func (rn *RaftNode) firstPeerWithID(id int) *util.Peer {
 	}
 
 	return nil
+}
+
+func (rn *RaftNode) ackquireLockWithLogger(location string) {
+	rn.logger.Debug("Locking", slog.String("location", location))
+	rn.mu.Lock()
+	rn.logger.Debug("Lock acquired", slog.String("location", location))
+}
+
+func (rn *RaftNode) releaseLockWithLogger(location string) {
+	rn.logger.Debug("Releasing lock", slog.String("location", location))
+	rn.mu.Unlock()
 }

@@ -70,7 +70,7 @@ func NewRaftConfig() RaftConfig {
 	return RaftConfig{
 		ElectionTimeoutMinMs: 300,
 		ElectionTimeoutMaxMs: 600,
-		HeartbeatIntervalMs:  50,
+		HeartbeatIntervalMs:  100,
 		CompactionThreshold:  1000,
 	}
 }

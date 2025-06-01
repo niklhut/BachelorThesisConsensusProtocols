@@ -423,7 +423,6 @@ func (rn *RaftNode) heartbeatLoop(ctx context.Context) {
 		go func() {
 			defer actionCancel()
 			if err := action(); err != nil {
-				rn.logger.Error("Heartbeat action failed", "error", err)
 			}
 		}()
 
@@ -456,13 +455,15 @@ func (rn *RaftNode) sendHeartbeat() error {
 
 // Checks if the election timeout has been reached.
 func (rn *RaftNode) checkElectionTimeout() error {
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.mu.RLock()
+	lastHeartbeat := rn.volatileState.LastHeartbeat
+	electionTimeout := rn.volatileState.ElectionTimeout
+	rn.mu.RUnlock()
 
 	now := time.Now()
-	timeSinceLastHeartbeat := now.Sub(rn.volatileState.LastHeartbeat)
+	timeSinceLastHeartbeat := now.Sub(lastHeartbeat)
 
-	if timeSinceLastHeartbeat.Milliseconds() > int64(rn.volatileState.ElectionTimeout) {
+	if timeSinceLastHeartbeat.Milliseconds() > int64(electionTimeout) {
 		rn.logger.Info("Election timeout reached, becoming candidate")
 		return rn.startElection()
 	}
@@ -480,11 +481,13 @@ func (rn *RaftNode) resetElectionTimer() {
 // Starts an election.
 func (rn *RaftNode) startElection() error {
 	rn.logger.Debug("Starting election")
+	rn.mu.Lock()
 	rn.becomeCandidate()
 
 	// Reset election timeout
 	rn.volatileState.ElectionTimeout = rand.Intn(rn.persistentState.Config.ElectionTimeoutMaxMs-rn.persistentState.Config.ElectionTimeoutMinMs+1) + rn.persistentState.Config.ElectionTimeoutMinMs
 	rn.resetElectionTimer()
+	rn.mu.Unlock()
 
 	// Request votes from other nodes
 	return rn.requestVotes()

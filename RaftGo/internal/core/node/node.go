@@ -56,29 +56,6 @@ func (rn *RaftNode) Majority() int {
 	return (len(rn.persistentState.Peers)+1)/2 + 1
 }
 
-// TODO: figure out what to do with this and where to put it
-// RaftNodeApplication defines the interface for a Raft node application.
-// This is the Go equivalent of your Swift RaftNodeApplication protocol.
-//
-// A concrete type (like RaftNode) will implement this.
-// type RaftNodeApplication interface {
-// 	GetOwnPeer() util.Peer
-// 	GetPeers() []util.Peer
-// 	Start(ctx context.Context) error // Using context for application lifecycle
-// 	Shutdown(ctx context.Context) error
-
-// 	// Exposing client RPCs through the application interface
-// 	Put(ctx context.Context, request clientreqs.PutRequest) (clientreqs.PutResponse, error)
-// 	Get(ctx context.Context, request clientreqs.GetRequest) (clientreqs.GetResponse, error)
-// 	GetDebug(ctx context.Context, request clientreqs.GetRequest) (clientreqs.GetResponse, error)
-// 	GetState(ctx context.Context) (clientreqs.ServerStateResponse, error)
-// 	GetTerm(ctx context.Context) (clientreqs.ServerTermResponse, error)
-
-// 	// Exposing Raft RPCs for external transport implementations to call (e.g., GRPC server)
-// 	HandleRequestVote(ctx context.Context, request peerreqs.RequestVoteRequest) (peerreqs.RequestVoteResponse, error)
-// 	HandleAppendEntries(ctx context.Context, request peerreqs.AppendEntriesRequest) (peerreqs.AppendEntriesResponse, error)
-// }
-
 // NewRaftNode creates and initializes a new RaftNode.
 // This is the Go constructor function.
 func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftPeerTransport) *RaftNode {

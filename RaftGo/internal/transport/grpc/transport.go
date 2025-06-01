@@ -1,1 +1,90 @@
+//go:generate protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/types.proto proto/peer.proto
+
 package grpc
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/niklhut/raft_go/internal/core/util"
+	"github.com/niklhut/raft_go/internal/transport/grpc/proto"
+)
+
+type grpcRaftPeerTransport struct {
+	clientPool *GRPCClientPool
+}
+
+func NewGRPCRaftPeerTransport(clientPool *GRPCClientPool) *grpcRaftPeerTransport {
+	return &grpcRaftPeerTransport{
+		clientPool: clientPool,
+	}
+}
+
+// AppendEntries implements RaftPeerTransport.AppendEntries
+func (t *grpcRaftPeerTransport) AppendEntries(
+	ctx context.Context,
+	req util.AppendEntriesRequest,
+	to util.Peer,
+) (util.AppendEntriesResponse, error) {
+	client, err := t.clientPool.GetClient(to)
+	if err != nil {
+		return util.AppendEntriesResponse{}, fmt.Errorf("failed to get gRPC client: %w", err)
+	}
+
+	// Convert util -> protobuf
+	protoReq := &proto.AppendEntriesRequest{
+		Term:         uint64(req.Term),
+		LeaderId:     uint32(req.LeaderID),
+		PrevLogIndex: uint64(req.PrevLogIndex),
+		PrevLogTerm:  uint64(req.PrevLogTerm),
+		LeaderCommit: uint64(req.LeaderCommit),
+	}
+
+	for _, entry := range req.Entries {
+		protoReq.Entries = append(protoReq.Entries, &proto.LogEntry{
+			Term:  uint64(entry.Term),
+			Key:   entry.Key,
+			Value: entry.Value,
+		})
+	}
+
+	protoResp, err := client.AppendEntries(ctx, protoReq)
+	if err != nil {
+		return util.AppendEntriesResponse{}, fmt.Errorf("rpc AppendEntries failed: %w", err)
+	}
+
+	// Convert protobuf -> util
+	return util.AppendEntriesResponse{
+		Term:    int(protoResp.Term),
+		Success: protoResp.Success,
+	}, nil
+}
+
+// RequestVote implements RaftPeerTransport.RequestVote
+func (t *grpcRaftPeerTransport) RequestVote(
+	ctx context.Context,
+	req util.RequestVoteRequest,
+	to util.Peer,
+) (util.RequestVoteResponse, error) {
+	client, err := t.clientPool.GetClient(to)
+	if err != nil {
+		return util.RequestVoteResponse{}, fmt.Errorf("failed to get gRPC client: %w", err)
+	}
+
+	protoReq := &proto.RequestVoteRequest{
+		Term:         uint64(req.Term),
+		CandidateId:  uint32(req.CandidateID),
+		LastLogIndex: uint64(req.LastLogIndex),
+		LastLogTerm:  uint64(req.LastLogTerm),
+	}
+
+	protoResp, err := client.RequestVote(ctx, protoReq)
+	if err != nil {
+		return util.RequestVoteResponse{}, fmt.Errorf("rpc RequestVote failed: %w", err)
+	}
+
+	return util.RequestVoteResponse{
+		Term:        int(protoResp.Term),
+		VoteGranted: protoResp.VoteGranted,
+	}, nil
+}

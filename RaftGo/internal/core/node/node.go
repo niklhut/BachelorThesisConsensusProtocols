@@ -691,7 +691,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 
 	replicationTracker.MarkSuccess(persistentStateSnapshot.OwnPeer.ID)
 
-	ctx, _ := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start replication to all peers concurrently
 	var wg sync.WaitGroup
@@ -713,6 +713,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 	// Wait for replication to complete in background
 	go func() {
 		wg.Wait()
+		cancel()
 	}()
 
 	// Wait for majority to have replicated the log before returning

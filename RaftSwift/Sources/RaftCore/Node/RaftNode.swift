@@ -55,8 +55,8 @@ public actor RaftNode {
     /// - Returns: The RequestVoteResponse.
     public func requestVote(request: RequestVoteRequest) async -> RequestVoteResponse {
         logger.trace("Received request vote from \(request.candidateID)", metadata: [
-            "term": request.term,
-            "myTerm": persistentState.currentTerm,
+            "term": .stringConvertible(request.term),
+            "myTerm": .stringConvertible(persistentState.currentTerm),
         ])
         resetElectionTimer()
 

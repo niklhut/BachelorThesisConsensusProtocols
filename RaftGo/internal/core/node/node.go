@@ -106,7 +106,7 @@ func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, t
 
 // HandleRequestVote processes a RequestVote RPC.
 func (rn *RaftNode) HandleRequestVote(ctx context.Context, req util.RequestVoteRequest) util.RequestVoteResponse {
-	rn.logger.Debug("Received RequestVote from %d",
+	rn.logger.Debug("Received RequestVote",
 		slog.Int("candidateID", req.CandidateID),
 		slog.Int("term", req.Term),
 		slog.Int("myTerm", rn.persistentState.CurrentTerm),
@@ -123,7 +123,7 @@ func (rn *RaftNode) HandleRequestVote(ctx context.Context, req util.RequestVoteR
 			VoteGranted: false,
 		}
 	} else if req.Term > rn.persistentState.CurrentTerm {
-		rn.logger.Info("Received higher term %d, becoming follower of %d",
+		rn.logger.Info("Received higher term, becoming follower",
 			slog.Int("newTerm", req.Term),
 			slog.Int("candidateID", req.CandidateID),
 		)
@@ -148,7 +148,7 @@ func (rn *RaftNode) HandleRequestVote(ctx context.Context, req util.RequestVoteR
 
 // HandleAppendEntries processes an AppendEntries RPC.
 func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntriesRequest) util.AppendEntriesResponse {
-	rn.logger.Debug("Received AppendEntries from %d",
+	rn.logger.Debug("Received AppendEntries",
 		slog.Int("leaderID", req.LeaderID),
 	)
 
@@ -163,7 +163,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 			Success: false,
 		}
 	} else if req.Term > rn.persistentState.CurrentTerm {
-		rn.logger.Info("Received higher term %d, becoming follower of %d",
+		rn.logger.Info("Received higher term, becoming follower",
 			slog.Int("newTerm", req.Term),
 			slog.Int("leaderID", req.LeaderID),
 		)
@@ -173,7 +173,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 		// If the node is a candidate, it should become a follower
 		rn.becomeFollower(req.Term, &req.LeaderID)
 	} else if rn.volatileState.CurrentLeaderID != nil && *rn.volatileState.CurrentLeaderID != req.LeaderID {
-		rn.logger.Info("Received AppendEntries from different leader, becoming follower of %d",
+		rn.logger.Info("Received AppendEntries from different leader, becoming follower",
 			slog.Int("leaderID", req.LeaderID),
 		)
 		rn.becomeFollower(req.Term, &req.LeaderID)
@@ -182,7 +182,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 	// Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm.
 	if req.PrevLogIndex > 0 {
 		if len(rn.persistentState.Log) < req.PrevLogIndex {
-			rn.logger.Info("Log is too short (length: %d, needed: %d)",
+			rn.logger.Info("Log is too short",
 				slog.Int("logLength", len(rn.persistentState.Log)),
 				slog.Int("neededIndex", req.PrevLogIndex),
 			)
@@ -194,7 +194,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 
 		prevLogTerm := rn.persistentState.Log[req.PrevLogIndex-1].Term
 		if prevLogTerm != req.PrevLogTerm {
-			rn.logger.Info("Term mismatch at prevLogIndex %d (expected %d, got %d)",
+			rn.logger.Info("Term mismatch at prevLogIndex",
 				slog.Int("prevLogIndex", req.PrevLogIndex),
 				slog.Int("reqPrevLogTerm", req.PrevLogTerm),
 				slog.Int("prevLogTerm", prevLogTerm),
@@ -220,7 +220,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 				existingEntry := rn.persistentState.Log[arrayIndex]
 				if existingEntry.Term != newEntry.Term {
 					// Found a conflict - different term for same index
-					rn.logger.Info("Found conflict at index %d: existing term %d, new term %d",
+					rn.logger.Info("Found conflict at index",
 						slog.Int("logIndex", logIndex),
 						slog.Int("existingTerm", existingEntry.Term),
 						slog.Int("newTerm", newEntry.Term),
@@ -241,7 +241,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 			deleteFromIndex := req.PrevLogIndex + conflictIndex + 1
 			deleteFromArrayIndex := deleteFromIndex - 1
 
-			rn.logger.Debug("Truncating log from index %d",
+			rn.logger.Debug("Truncating log from index",
 				slog.Int("deleteFromIndex", deleteFromIndex))
 			rn.persistentState.Log = rn.persistentState.Log[:deleteFromArrayIndex]
 		}
@@ -250,7 +250,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 		startAppendIndex := max(0, len(rn.persistentState.Log)-req.PrevLogIndex)
 		if startAppendIndex < len(req.Entries) {
 			entriesToAppend := req.Entries[startAppendIndex:]
-			rn.logger.Debug("Appending %d entries starting from log index %d",
+			rn.logger.Debug("Appending entries",
 				slog.Int("entriesCount", len(entriesToAppend)),
 				slog.Int("logIndex", len(rn.persistentState.Log)+1),
 			)
@@ -262,7 +262,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 	if req.LeaderCommit > rn.volatileState.CommitIndex {
 		lastLogIndex := len(rn.persistentState.Log)
 		rn.volatileState.CommitIndex = min(req.LeaderCommit, lastLogIndex)
-		rn.logger.Debug("Updating commit index to %d",
+		rn.logger.Debug("Updating commit index",
 			slog.Int("commitIndex", rn.volatileState.CommitIndex),
 		)
 
@@ -508,7 +508,7 @@ type VoteResult struct {
 // Requests votes from all peers.
 func (rn *RaftNode) requestVotes() error {
 	rn.mu.RLock()
-	rn.logger.Debug("Requesting votes from peers: %+v",
+	rn.logger.Debug("Requesting votes",
 		slog.Any("peers", rn.persistentState.Peers),
 	)
 
@@ -563,7 +563,7 @@ func (rn *RaftNode) requestVotes() error {
 
 	// Process vote responses
 	for result := range voteResults {
-		rn.logger.Debug("Received vote from %d: %v",
+		rn.logger.Debug("Received vote",
 			slog.Int("peerId", result.peerId),
 			slog.Bool("voteGranted", result.vote.VoteGranted),
 		)
@@ -572,7 +572,7 @@ func (rn *RaftNode) requestVotes() error {
 
 		// Check if the peer has a higher term
 		if result.vote.Term > rn.persistentState.CurrentTerm {
-			rn.logger.Info("Received higher term %d, becoming follower of %d",
+			rn.logger.Info("Received higher term, becoming follower",
 				slog.Int("term", result.vote.Term),
 				slog.Int("peerId", result.peerId),
 			)
@@ -588,7 +588,7 @@ func (rn *RaftNode) requestVotes() error {
 			votes++
 
 			if votes >= requiredVotes {
-				rn.logger.Info("Received majority of votes (%d/%d), becoming leader",
+				rn.logger.Info("Received majority of votes, becoming leader",
 					slog.Int("votes", votes),
 					slog.Int("numberOfPeers", len(rn.persistentState.Peers)+1),
 				)
@@ -607,7 +607,7 @@ func (rn *RaftNode) requestVotes() error {
 	defer rn.mu.RUnlock()
 
 	if rn.volatileState.State == util.ServerStateCandidate {
-		rn.logger.Info("Election failed, received votes: %d / %d",
+		rn.logger.Info("Election failed",
 			slog.Int("votes", votes),
 			slog.Int("numberOfPeers", len(rn.persistentState.Peers)+1),
 		)
@@ -617,7 +617,7 @@ func (rn *RaftNode) requestVotes() error {
 }
 
 func (rn *RaftNode) requestVoteFromPeer(ctx context.Context, peer util.Peer, persistentStateSnapshot util.PersistentState) (int, util.RequestVoteResponse) {
-	rn.logger.Debug("Requesting vote from %d",
+	rn.logger.Debug("Requesting vote",
 		slog.Int("peerId", peer.ID),
 	)
 
@@ -634,7 +634,7 @@ func (rn *RaftNode) requestVoteFromPeer(ctx context.Context, peer util.Peer, per
 
 	response, err := rn.transport.RequestVote(ctx, voteRequest, peer)
 	if err != nil {
-		rn.logger.Error("Failed to request vote from %d: %v",
+		rn.logger.Error("Failed to request vote",
 			slog.Int("peerId", peer.ID),
 			slog.Any("error", err),
 		)
@@ -809,7 +809,7 @@ func (rn *RaftNode) replicateLogToPeer(
 
 		rn.releaseLockWithLogger("replicateLogToPeer 2")
 
-		rn.logger.Debug("Sending append entries to %d with nextIndex %d, prevLogIndex %d, prevLogTerm %d, entriesCount %d",
+		rn.logger.Debug("Sending append entries",
 			slog.Int("peerId", peer.ID),
 			slog.Int("nextIndex", peerNextIndex),
 			slog.Int("prevLogIndex", peerPrevLogIndex),
@@ -855,7 +855,7 @@ func (rn *RaftNode) replicateLogToPeer(
 		rn.ackquireLockWithLogger("replicateLogToPeer 3")
 
 		if result.Term > rn.persistentState.CurrentTerm {
-			rn.logger.Info("Received higher term %d, becoming follower of %d",
+			rn.logger.Info("Received higher term, becoming follower",
 				slog.Int("term", result.Term),
 				slog.Int("peerId", peer.ID),
 			)
@@ -866,7 +866,7 @@ func (rn *RaftNode) replicateLogToPeer(
 
 		if result.Success {
 			replicationTracker.MarkSuccess(peer.ID)
-			rn.logger.Debug("Append entries successful for %d",
+			rn.logger.Debug("Append entries successful",
 				slog.Int("peerId", peer.ID))
 
 			newMatchIndex := peerPrevLogIndex + len(entriesToSend)
@@ -881,7 +881,7 @@ func (rn *RaftNode) replicateLogToPeer(
 			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			retryCount++
 
-			rn.logger.Info("Append entries failed for %d, retrying with earlier index %d",
+			rn.logger.Info("Append entries failed, retrying with earlier index",
 				slog.Int("peerId", peer.ID),
 				slog.Int("nextIndex", rn.leaderState.NextIndex[peer.ID]),
 				slog.Int("retryCount", retryCount),
@@ -933,7 +933,7 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 			entry := rn.persistentState.Log[newCommitIndex-1]
 			if entry.Term == rn.persistentState.CurrentTerm {
 				rn.volatileState.CommitIndex = newCommitIndex
-				rn.logger.Debug("Updated commit index from %d to %d",
+				rn.logger.Debug("Updated commit index",
 					slog.Int("oldCommitIndex", oldCommitIndex),
 					slog.Int("newCommitIndex", newCommitIndex))
 				break
@@ -954,7 +954,7 @@ func (rn *RaftNode) applyCommittedEntries() {
 			oldValue := rn.persistentState.StateMachine[*entry.Key]
 			rn.persistentState.StateMachine[*entry.Key] = *entry.Value
 
-			rn.logger.Debug("Applied entry at index %d: key=%s, value=%s, previousValue=%s",
+			rn.logger.Debug("Applied entry",
 				slog.Int("index", rn.volatileState.LastApplied+1),
 				slog.String("key", *entry.Key),
 				slog.String("value", *entry.Value),

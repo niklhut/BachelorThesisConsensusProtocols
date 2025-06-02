@@ -11,13 +11,17 @@ import (
 )
 
 type GRPCClientPool struct {
-	mu      sync.Mutex
-	clients map[int]*grpc.ClientConn
+	mu                 sync.Mutex
+	clients            map[int]*grpc.ClientConn
+	interceptors       []grpc.UnaryClientInterceptor
+	streamInterceptors []grpc.StreamClientInterceptor
 }
 
-func NewGRPCClientPool() *GRPCClientPool {
+func NewGRPCClientPool(interceptors []grpc.UnaryClientInterceptor, streamInterceptors []grpc.StreamClientInterceptor) *GRPCClientPool {
 	return &GRPCClientPool{
-		clients: make(map[int]*grpc.ClientConn),
+		clients:            make(map[int]*grpc.ClientConn),
+		interceptors:       interceptors,
+		streamInterceptors: streamInterceptors,
 	}
 }
 
@@ -25,19 +29,21 @@ func (p *GRPCClientPool) GetClient(to util.Peer) (proto.RaftPeerClient, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	conn, ok := p.clients[to.ID]
-	if !ok {
-		var err error
-		conn, err = grpc.NewClient(
-			fmt.Sprintf("%s:%d", to.Address, to.Port),
-			grpc.WithTransportCredentials(insecure.NewCredentials()),
-		)
-		if err != nil {
-			return nil, err
-		}
-		p.clients[to.ID] = conn
+	if client, exists := p.clients[to.ID]; exists {
+		return proto.NewRaftPeerClient(client), nil
 	}
 
+	conn, err := grpc.NewClient(
+		fmt.Sprintf("%s:%d", to.Address, to.Port),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithChainUnaryInterceptor(p.interceptors...),
+		grpc.WithChainStreamInterceptor(p.streamInterceptors...),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	p.clients[to.ID] = conn
 	return proto.NewRaftPeerClient(conn), nil
 }
 

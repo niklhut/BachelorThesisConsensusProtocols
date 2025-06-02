@@ -1,4 +1,4 @@
-//go:generate protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative proto/types.proto proto/peer.proto
+//go:generate protoc --go_out=proto --go_opt=paths=source_relative --go-grpc_out=proto --go-grpc_opt=paths=source_relative --proto_path=proto proto/types.proto proto/peer.proto proto/client.proto proto/partition.proto
 
 package grpc
 

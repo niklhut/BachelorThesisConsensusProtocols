@@ -3,8 +3,9 @@ package grpc
 import (
 	"context"
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
+	"os"
 
 	"github.com/niklhut/raft_go/internal/core/node"
 	"github.com/niklhut/raft_go/internal/core/util"
@@ -15,12 +16,14 @@ import (
 type RaftGRPCServer struct {
 	ownPeer util.Peer
 	peers   []util.Peer
+	logger  *slog.Logger
 }
 
 func NewRaftGRPCServer(ownPeer util.Peer, peers []util.Peer) *RaftGRPCServer {
 	return &RaftGRPCServer{
 		ownPeer: ownPeer,
 		peers:   peers,
+		logger:  slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
 	}
 }
 
@@ -33,8 +36,13 @@ func (s *RaftGRPCServer) Peers() []util.Peer {
 }
 
 func (s *RaftGRPCServer) Serve(ctx context.Context) error {
+	serverIDInterceptor := ServerIDInjectionInterceptor{PeerID: s.ownPeer.ID}
+
 	// Build gRPC transport and RaftNode
-	clientPool := NewGRPCClientPool()
+	clientPool := NewGRPCClientPool(
+		[]grpc.UnaryClientInterceptor{serverIDInterceptor.UnaryClientInterceptor()},
+		[]grpc.StreamClientInterceptor{serverIDInterceptor.StreamClientInterceptor()},
+	)
 	transport := NewGRPCRaftPeerTransport(clientPool)
 
 	config := util.NewRaftConfig()
@@ -46,12 +54,18 @@ func (s *RaftGRPCServer) Serve(ctx context.Context) error {
 		return fmt.Errorf("failed to listen: %w", err)
 	}
 
-	grpcServer := grpc.NewServer()
+	partitionInterceptor := NewNetworkPartitionInterceptor(s.logger)
 
-	// Register RaftPeerService
+	grpcServer := grpc.NewServer(
+		grpc.ChainUnaryInterceptor(partitionInterceptor.UnaryServerInterceptor()),
+		grpc.ChainStreamInterceptor(partitionInterceptor.StreamServerInterceptor()))
+
+	// Register Services
 	proto.RegisterRaftPeerServer(grpcServer, NewRaftPeerService(raftNode))
+	proto.RegisterRaftClientServer(grpcServer, NewRaftClientService(raftNode))
+	proto.RegisterPartitionServer(grpcServer, NewPartitionService(partitionInterceptor))
 
-	log.Printf("Server listening on %v", lis.Addr())
+	s.logger.Info("Server listening", slog.Any("address", lis.Addr()))
 
 	// Run server and node concurrently
 	raftNode.Start()

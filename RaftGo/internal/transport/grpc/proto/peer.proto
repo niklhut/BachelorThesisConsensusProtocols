@@ -1,7 +1,7 @@
 syntax = "proto3";
 package raft;
 
-import "proto/types.proto";
+import "types.proto";
 
 option go_package = "github.com/niklhut/raft_go/internal/transport/grpc/proto";
 

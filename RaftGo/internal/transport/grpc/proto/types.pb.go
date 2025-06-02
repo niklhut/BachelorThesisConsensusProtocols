@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.6
 // 	protoc        v5.29.3
-// source: proto/types.proto
+// source: types.proto
 
 package proto
 
@@ -59,11 +59,11 @@ func (x ServerState) String() string {
 }
 
 func (ServerState) Descriptor() protoreflect.EnumDescriptor {
-	return file_proto_types_proto_enumTypes[0].Descriptor()
+	return file_types_proto_enumTypes[0].Descriptor()
 }
 
 func (ServerState) Type() protoreflect.EnumType {
-	return &file_proto_types_proto_enumTypes[0]
+	return &file_types_proto_enumTypes[0]
 }
 
 func (x ServerState) Number() protoreflect.EnumNumber {
@@ -72,7 +72,7 @@ func (x ServerState) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use ServerState.Descriptor instead.
 func (ServerState) EnumDescriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{0}
+	return file_types_proto_rawDescGZIP(), []int{0}
 }
 
 // A peer in the cluster
@@ -90,7 +90,7 @@ type Peer struct {
 
 func (x *Peer) Reset() {
 	*x = Peer{}
-	mi := &file_proto_types_proto_msgTypes[0]
+	mi := &file_types_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -102,7 +102,7 @@ func (x *Peer) String() string {
 func (*Peer) ProtoMessage() {}
 
 func (x *Peer) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_types_proto_msgTypes[0]
+	mi := &file_types_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -115,7 +115,7 @@ func (x *Peer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Peer.ProtoReflect.Descriptor instead.
 func (*Peer) Descriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{0}
+	return file_types_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Peer) GetId() uint32 {
@@ -154,7 +154,7 @@ type LogEntry struct {
 
 func (x *LogEntry) Reset() {
 	*x = LogEntry{}
-	mi := &file_proto_types_proto_msgTypes[1]
+	mi := &file_types_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -166,7 +166,7 @@ func (x *LogEntry) String() string {
 func (*LogEntry) ProtoMessage() {}
 
 func (x *LogEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_types_proto_msgTypes[1]
+	mi := &file_types_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -179,7 +179,7 @@ func (x *LogEntry) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LogEntry.ProtoReflect.Descriptor instead.
 func (*LogEntry) Descriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{1}
+	return file_types_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *LogEntry) GetTerm() uint64 {
@@ -226,7 +226,7 @@ type PersistentState struct {
 
 func (x *PersistentState) Reset() {
 	*x = PersistentState{}
-	mi := &file_proto_types_proto_msgTypes[2]
+	mi := &file_types_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -238,7 +238,7 @@ func (x *PersistentState) String() string {
 func (*PersistentState) ProtoMessage() {}
 
 func (x *PersistentState) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_types_proto_msgTypes[2]
+	mi := &file_types_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -251,7 +251,7 @@ func (x *PersistentState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PersistentState.ProtoReflect.Descriptor instead.
 func (*PersistentState) Descriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{2}
+	return file_types_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *PersistentState) GetCurrentTerm() uint64 {
@@ -324,7 +324,7 @@ type VolatileState struct {
 
 func (x *VolatileState) Reset() {
 	*x = VolatileState{}
-	mi := &file_proto_types_proto_msgTypes[3]
+	mi := &file_types_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -336,7 +336,7 @@ func (x *VolatileState) String() string {
 func (*VolatileState) ProtoMessage() {}
 
 func (x *VolatileState) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_types_proto_msgTypes[3]
+	mi := &file_types_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -349,7 +349,7 @@ func (x *VolatileState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VolatileState.ProtoReflect.Descriptor instead.
 func (*VolatileState) Descriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{3}
+	return file_types_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *VolatileState) GetCommitIndex() uint64 {
@@ -407,7 +407,7 @@ type LeaderState struct {
 
 func (x *LeaderState) Reset() {
 	*x = LeaderState{}
-	mi := &file_proto_types_proto_msgTypes[4]
+	mi := &file_types_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -419,7 +419,7 @@ func (x *LeaderState) String() string {
 func (*LeaderState) ProtoMessage() {}
 
 func (x *LeaderState) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_types_proto_msgTypes[4]
+	mi := &file_types_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -432,7 +432,7 @@ func (x *LeaderState) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LeaderState.ProtoReflect.Descriptor instead.
 func (*LeaderState) Descriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{4}
+	return file_types_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *LeaderState) GetNextIndex() map[uint32]uint64 {
@@ -464,7 +464,7 @@ type Snapshot struct {
 
 func (x *Snapshot) Reset() {
 	*x = Snapshot{}
-	mi := &file_proto_types_proto_msgTypes[5]
+	mi := &file_types_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -476,7 +476,7 @@ func (x *Snapshot) String() string {
 func (*Snapshot) ProtoMessage() {}
 
 func (x *Snapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_proto_types_proto_msgTypes[5]
+	mi := &file_types_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -489,7 +489,7 @@ func (x *Snapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Snapshot.ProtoReflect.Descriptor instead.
 func (*Snapshot) Descriptor() ([]byte, []int) {
-	return file_proto_types_proto_rawDescGZIP(), []int{5}
+	return file_types_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *Snapshot) GetLastIncludedIndex() uint64 {
@@ -513,11 +513,11 @@ func (x *Snapshot) GetStateMachine() map[string]string {
 	return nil
 }
 
-var File_proto_types_proto protoreflect.FileDescriptor
+var File_types_proto protoreflect.FileDescriptor
 
-const file_proto_types_proto_rawDesc = "" +
+const file_types_proto_rawDesc = "" +
 	"\n" +
-	"\x11proto/types.proto\x12\x04raft\x1a\x1fgoogle/protobuf/timestamp.proto\"D\n" +
+	"\vtypes.proto\x12\x04raft\x1a\x1fgoogle/protobuf/timestamp.proto\"D\n" +
 	"\x04Peer\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\x12\x12\n" +
@@ -576,20 +576,20 @@ const file_proto_types_proto_rawDesc = "" +
 	"\x06LEADER\x10\x02B:Z8github.com/niklhut/raft_go/internal/transport/grpc/protob\x06proto3"
 
 var (
-	file_proto_types_proto_rawDescOnce sync.Once
-	file_proto_types_proto_rawDescData []byte
+	file_types_proto_rawDescOnce sync.Once
+	file_types_proto_rawDescData []byte
 )
 
-func file_proto_types_proto_rawDescGZIP() []byte {
-	file_proto_types_proto_rawDescOnce.Do(func() {
-		file_proto_types_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_types_proto_rawDesc), len(file_proto_types_proto_rawDesc)))
+func file_types_proto_rawDescGZIP() []byte {
+	file_types_proto_rawDescOnce.Do(func() {
+		file_types_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_types_proto_rawDesc), len(file_types_proto_rawDesc)))
 	})
-	return file_proto_types_proto_rawDescData
+	return file_types_proto_rawDescData
 }
 
-var file_proto_types_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_proto_types_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
-var file_proto_types_proto_goTypes = []any{
+var file_types_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
+var file_types_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
+var file_types_proto_goTypes = []any{
 	(ServerState)(0),              // 0: raft.ServerState
 	(*Peer)(nil),                  // 1: raft.Peer
 	(*LogEntry)(nil),              // 2: raft.LogEntry
@@ -603,7 +603,7 @@ var file_proto_types_proto_goTypes = []any{
 	nil,                           // 10: raft.Snapshot.StateMachineEntry
 	(*timestamppb.Timestamp)(nil), // 11: google.protobuf.Timestamp
 }
-var file_proto_types_proto_depIdxs = []int32{
+var file_types_proto_depIdxs = []int32{
 	2,  // 0: raft.PersistentState.log:type_name -> raft.LogEntry
 	7,  // 1: raft.PersistentState.state_machine:type_name -> raft.PersistentState.StateMachineEntry
 	6,  // 2: raft.PersistentState.snapshot:type_name -> raft.Snapshot
@@ -621,30 +621,30 @@ var file_proto_types_proto_depIdxs = []int32{
 	0,  // [0:10] is the sub-list for field type_name
 }
 
-func init() { file_proto_types_proto_init() }
-func file_proto_types_proto_init() {
-	if File_proto_types_proto != nil {
+func init() { file_types_proto_init() }
+func file_types_proto_init() {
+	if File_types_proto != nil {
 		return
 	}
-	file_proto_types_proto_msgTypes[1].OneofWrappers = []any{}
-	file_proto_types_proto_msgTypes[2].OneofWrappers = []any{}
-	file_proto_types_proto_msgTypes[3].OneofWrappers = []any{}
+	file_types_proto_msgTypes[1].OneofWrappers = []any{}
+	file_types_proto_msgTypes[2].OneofWrappers = []any{}
+	file_types_proto_msgTypes[3].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_types_proto_rawDesc), len(file_proto_types_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_types_proto_rawDesc), len(file_types_proto_rawDesc)),
 			NumEnums:      1,
 			NumMessages:   10,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_proto_types_proto_goTypes,
-		DependencyIndexes: file_proto_types_proto_depIdxs,
-		EnumInfos:         file_proto_types_proto_enumTypes,
-		MessageInfos:      file_proto_types_proto_msgTypes,
+		GoTypes:           file_types_proto_goTypes,
+		DependencyIndexes: file_types_proto_depIdxs,
+		EnumInfos:         file_types_proto_enumTypes,
+		MessageInfos:      file_types_proto_msgTypes,
 	}.Build()
-	File_proto_types_proto = out.File
-	file_proto_types_proto_goTypes = nil
-	file_proto_types_proto_depIdxs = nil
+	File_types_proto = out.File
+	file_types_proto_goTypes = nil
+	file_types_proto_depIdxs = nil
 }

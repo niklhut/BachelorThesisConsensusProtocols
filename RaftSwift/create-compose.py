@@ -1,7 +1,7 @@
 import argparse
 import yaml
 
-def generate_compose(num_peers, use_actors, image):
+def generate_compose(num_peers, use_actors, image, client_image):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -49,7 +49,7 @@ def generate_compose(num_peers, use_actors, image):
     client_shell_cmd = f"sleep 5 && {' '.join(raw_client_cmd)}"
 
     services["raft_client"] = {
-        "image": image,
+        "image": client_image,
         "container_name": "raft_client",
         "depends_on": [f"raft_node_{i}" for i in range(1, num_peers + 1)],
         "networks": [network_name],
@@ -74,9 +74,10 @@ def main():
     parser.add_argument("--actors", action="store_true", help="Use distributed actor system")
     parser.add_argument("--output", type=str, default="docker-compose.yml", help="Output YAML file")
     parser.add_argument("--image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
+    parser.add_argument("--client-image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     args = parser.parse_args()
 
-    compose_yaml = generate_compose(args.peers, args.actors, args.image)
+    compose_yaml = generate_compose(args.peers, args.actors, args.image, args.client_image)
 
     with open(args.output, "w") as f:
         yaml.dump(compose_yaml, f, default_flow_style=False, sort_keys=False)

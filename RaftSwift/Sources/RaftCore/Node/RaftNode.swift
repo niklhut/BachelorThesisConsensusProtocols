@@ -273,6 +273,8 @@ public actor RaftNode {
         // Cancel existing task if it exists
         heartbeatTask?.cancel()
 
+        let heartbeatInterval = Duration.milliseconds(persistentState.config.heartbeatInterval)
+
         let task = Task {
             while !Task.isCancelled {
                 do {
@@ -280,10 +282,10 @@ public actor RaftNode {
                     let action: @Sendable () async throws -> Void
 
                     if volatileState.state == .leader {
-                        timeout = .milliseconds(persistentState.config.heartbeatInterval)
+                        timeout = heartbeatInterval
                         action = self.sendHeartbeat
                     } else {
-                        timeout = .milliseconds(persistentState.config.heartbeatInterval * 3)
+                        timeout = heartbeatInterval * 3
                         action = self.checkElectionTimeout
                     }
 

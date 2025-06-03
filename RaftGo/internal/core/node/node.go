@@ -736,6 +736,13 @@ func (rn *RaftNode) replicateLogToPeer(
 	retryCount := 0
 	targetEndIndex := originalLogLength + len(entries)
 
+	rn.ackquireLockWithLogger("replicateLogToPeer 1")
+	peerNextIndex := rn.leaderState.NextIndex[peer.ID]
+	if peerNextIndex == 0 {
+		peerNextIndex = len(rn.persistentState.Log) + 1
+	}
+	rn.releaseLockWithLogger("replicateLogToPeer 1")
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -743,33 +750,28 @@ func (rn *RaftNode) replicateLogToPeer(
 		default:
 		}
 
-		rn.ackquireLockWithLogger("replicateLogToPeer")
+		rn.ackquireLockWithLogger("replicateLogToPeer 2")
 
 		// Check conditions for continuing
 		if rn.volatileState.State != util.ServerStateLeader ||
 			rn.persistentState.CurrentTerm != currentTerm ||
 			rn.firstPeerWithID(peer.ID) == nil {
-			rn.releaseLockWithLogger("replicateLogToPeer")
+			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			return nil
 		}
-		rn.releaseLockWithLogger("replicateLogToPeer")
+		rn.releaseLockWithLogger("replicateLogToPeer 2")
 
 		// Check if already successful
 		if replicationTracker.IsSuccessful(peer.ID) {
 			return nil
 		}
 
-		rn.ackquireLockWithLogger("replicateLogToPeer 2")
+		rn.ackquireLockWithLogger("replicateLogToPeer 3")
 		currentMatchIndex := rn.leaderState.MatchIndex[peer.ID]
 		if currentMatchIndex > targetEndIndex {
-			rn.releaseLockWithLogger("replicateLogToPeer 2")
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			replicationTracker.MarkSuccess(peer.ID)
 			return nil
-		}
-
-		peerNextIndex := rn.leaderState.NextIndex[peer.ID]
-		if peerNextIndex == 0 {
-			peerNextIndex = len(rn.persistentState.Log) + 1
 		}
 
 		peerPrevLogIndex := peerNextIndex - 1
@@ -790,11 +792,11 @@ func (rn *RaftNode) replicateLogToPeer(
 		} else {
 			// Peer's nextIndex is beyond what we expect - reset and retry
 			rn.leaderState.NextIndex[peer.ID] = originalLogLength + 1
-			rn.releaseLockWithLogger("replicateLogToPeer 2")
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			continue
 		}
 
-		rn.releaseLockWithLogger("replicateLogToPeer 2")
+		rn.releaseLockWithLogger("replicateLogToPeer 3")
 
 		rn.logger.Debug("Sending append entries",
 			slog.Int("peerId", peer.ID),
@@ -839,7 +841,7 @@ func (rn *RaftNode) replicateLogToPeer(
 		default:
 		}
 
-		rn.ackquireLockWithLogger("replicateLogToPeer 3")
+		rn.ackquireLockWithLogger("replicateLogToPeer 4")
 
 		if result.Term > rn.persistentState.CurrentTerm {
 			rn.logger.Info("Received higher term, becoming follower",
@@ -847,7 +849,7 @@ func (rn *RaftNode) replicateLogToPeer(
 				slog.Int("peerId", peer.ID),
 			)
 			rn.becomeFollower(result.Term, &peer.ID)
-			rn.releaseLockWithLogger("replicateLogToPeer 3")
+			rn.releaseLockWithLogger("replicateLogToPeer 4")
 			return nil
 		}
 
@@ -860,12 +862,12 @@ func (rn *RaftNode) replicateLogToPeer(
 			rn.leaderState.MatchIndex[peer.ID] = newMatchIndex
 			rn.leaderState.NextIndex[peer.ID] = newMatchIndex + 1
 
-			rn.releaseLockWithLogger("replicateLogToPeer 3")
+			rn.releaseLockWithLogger("replicateLogToPeer 4")
 			return nil
 		} else {
 			// Log inconsistency, decrement nextIndex and retry
 			rn.leaderState.NextIndex[peer.ID] = max(1, rn.leaderState.NextIndex[peer.ID]-1)
-			rn.releaseLockWithLogger("replicateLogToPeer 3")
+			rn.releaseLockWithLogger("replicateLogToPeer 4")
 			retryCount++
 
 			rn.logger.Info("Append entries failed, retrying with earlier index",

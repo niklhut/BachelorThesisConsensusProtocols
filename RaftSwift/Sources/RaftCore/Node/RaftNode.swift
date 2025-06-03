@@ -515,6 +515,9 @@ public actor RaftNode {
 
         let targetEndIndex = originalLogLength + entries.count
 
+        // Pre-calculate outside of loop
+        let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + 1
+
         // Continue trying until successful or no longer leader
         while !Task.isCancelled, volatileState.state == .leader, persistentState.currentTerm == currentTerm, persistentState.peers.contains(peer) {
             // Check if already successful (another task marked it as successful)
@@ -529,7 +532,6 @@ public actor RaftNode {
             }
 
             do {
-                let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + 1
                 let peerPrevLogIndex = peerNextIndex - 1
                 let peerPrevLogTerm = if peerPrevLogIndex > 0, peerPrevLogIndex <= persistentState.log.count {
                     persistentState.log[peerPrevLogIndex - 1].term

@@ -351,14 +351,23 @@ public actor RaftNode {
         var votes = 1
         let requiredVotes = majority
 
-        let persistentStateSnapshot = persistentState
+        let currentTerm = persistentState.currentTerm
+        let candidateID = persistentState.ownPeer.id
+        let lastLogIndex = persistentState.log.count
+        let lastLogTerm = persistentState.log.last?.term ?? 0
+        let peers = persistentState.peers
 
         await withTaskGroup { group in
-            for peer in persistentState.peers {
+            for peer in peers {
                 group.addTask {
                     await self.requestVoteFromPeer(
                         peer: peer,
-                        persistentStateSnapshot: persistentStateSnapshot,
+                        voteRequest: RequestVoteRequest(
+                            term: currentTerm,
+                            candidateID: candidateID,
+                            lastLogIndex: lastLogIndex,
+                            lastLogTerm: lastLogTerm,
+                        ),
                     )
                 }
             }
@@ -378,7 +387,7 @@ public actor RaftNode {
                     votes += 1
 
                     if votes >= requiredVotes {
-                        logger.info("Received majority of votes (\(votes) / \(persistentState.peers.count + 1)), becoming leader")
+                        logger.info("Received majority of votes (\(votes) / \(peers.count + 1)), becoming leader")
                         becomeLeader()
 
                         return
@@ -387,7 +396,7 @@ public actor RaftNode {
             }
 
             if volatileState.state == .candidate {
-                logger.info("Election failed, received votes: \(votes) / \(persistentState.peers.count + 1)")
+                logger.info("Election failed, received votes: \(votes) / \(peers.count + 1)")
             }
         }
     }
@@ -396,20 +405,14 @@ public actor RaftNode {
     ///
     /// - Parameters:
     ///   - peer: The peer to request a vote from.
-    ///   - persistentStateSnapshot: The persistent state snapshot to use for the request.
+    ///   - voteRequest: The vote request.
     /// - Returns: A tuple containing the peer ID and the vote response.
     func requestVoteFromPeer(
         peer: Peer,
-        persistentStateSnapshot: PersistentState,
+        voteRequest: RequestVoteRequest,
     ) async -> (Int, RequestVoteResponse) {
         logger.trace("Requesting vote from \(peer.id)")
         do {
-            let voteRequest = RequestVoteRequest(
-                term: persistentStateSnapshot.currentTerm,
-                candidateID: persistentStateSnapshot.ownPeer.id,
-                lastLogIndex: persistentStateSnapshot.log.count,
-                lastLogTerm: persistentStateSnapshot.log.last?.term ?? 0,
-            )
             let response = try await transport.requestVote(
                 voteRequest,
                 to: peer,
@@ -435,8 +438,11 @@ public actor RaftNode {
 
         resetElectionTimer()
 
-        let persistentStateSnapshot = persistentState
-        let volatileStateSnapshot = volatileState
+        let currentTerm = persistentState.currentTerm
+        let leaderID = persistentState.ownPeer.id
+        let peers = persistentState.peers
+        let commitIndex = volatileState.commitIndex
+        let originalLogLength = persistentState.log.count
 
         // Add log entries to log
         persistentState.log.append(contentsOf: entries)
@@ -447,19 +453,21 @@ public actor RaftNode {
             "majority": .stringConvertible(majority),
             "entries": .stringConvertible(entries),
         ])
-        await replicationTracker.markSuccess(id: persistentStateSnapshot.ownPeer.id)
+        await replicationTracker.markSuccess(id: leaderID)
 
         // Start a background task for replication
         Task {
             try await withThrowingTaskGroup { group in
                 // Start individual replication tasks for each peer
-                for peer in persistentStateSnapshot.peers {
+                for peer in peers {
                     group.addTask {
                         try await self.replicateLogToPeer(
                             peer: peer,
                             replicationTracker: replicationTracker,
-                            persistentStateSnapshot: persistentStateSnapshot,
-                            volatileStateSnapshot: volatileStateSnapshot,
+                            currentTerm: currentTerm,
+                            leaderID: leaderID,
+                            commitIndex: commitIndex,
+                            originalLogLength: originalLogLength,
                             entries: entries,
                         )
                     }
@@ -477,7 +485,7 @@ public actor RaftNode {
 
         // Once majority has replicated the log, update commit index
         // and apply committed entries
-        if volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm {
+        if volatileState.state == .leader, persistentState.currentTerm == currentTerm {
             await updateCommitIndexAndApply()
         }
     }
@@ -487,22 +495,26 @@ public actor RaftNode {
     /// - Parameters:
     ///   - peer: The peer to replicate the log to.
     ///   - replicationTracker: The replication tracker.
-    ///   - persistentStateSnapshot: The persistent state snapshot.
-    ///   - volatileStateSnapshot: The volatile state snapshot.
+    ///   - currentTerm: The current term.
+    ///   - leaderID: The leader ID.
+    ///   - commitIndex: The commit index.
+    ///   - originalLogLength: The original log length.
     ///   - entries: The log entries to replicate.
     private func replicateLogToPeer(
         peer: Peer,
         replicationTracker: ReplicationTracker,
-        persistentStateSnapshot: PersistentState,
-        volatileStateSnapshot: VolatileState,
+        currentTerm: Int,
+        leaderID: Int,
+        commitIndex: Int,
+        originalLogLength: Int,
         entries: [LogEntry],
     ) async throws {
         var retryCount = 0
 
-        let targetEndIndex = persistentStateSnapshot.log.count + entries.count
+        let targetEndIndex = originalLogLength + entries.count
 
         // Continue trying until successful or no longer leader
-        while !Task.isCancelled, volatileState.state == .leader, persistentState.currentTerm == persistentStateSnapshot.currentTerm, persistentState.peers.contains(peer) {
+        while !Task.isCancelled, volatileState.state == .leader, persistentState.currentTerm == currentTerm, persistentState.peers.contains(peer) {
             // Check if already successful (another task marked it as successful)
             if await replicationTracker.isSuccessful(id: peer.id) {
                 return
@@ -525,29 +537,29 @@ public actor RaftNode {
 
                 // Calculate entries to send
                 let entriesToSend: [LogEntry]
-                if peerNextIndex <= persistentStateSnapshot.log.count {
+                if peerNextIndex <= originalLogLength {
                     // Peer needs entries from the original log (catch-up scenario)
                     let startIndex = peerNextIndex - 1 // Convert to 0-based index
                     entriesToSend = Array(persistentState.log[startIndex...])
-                } else if peerNextIndex == persistentStateSnapshot.log.count + 1 {
+                } else if peerNextIndex == originalLogLength + 1 {
                     // Peer is up-to-date with original log, send only new entries
                     entriesToSend = entries
                 } else {
                     // Peer's nextIndex is beyond what we expect - this shouldn't happen
                     // Reset nextIndex and retry
-                    leaderState.nextIndex[peer.id] = persistentStateSnapshot.log.count + 1
+                    leaderState.nextIndex[peer.id] = originalLogLength + 1
                     continue
                 }
 
                 logger.trace("Sending append entries to \(peer.id) with nextIndex: \(peerNextIndex), prevLogIndex: \(peerPrevLogIndex), prevLogTerm: \(peerPrevLogTerm), entries.count: \(entriesToSend.count)")
 
                 let appendEntriesRequest = AppendEntriesRequest(
-                    term: persistentStateSnapshot.currentTerm,
-                    leaderID: persistentStateSnapshot.ownPeer.id,
+                    term: currentTerm,
+                    leaderID: leaderID,
                     prevLogIndex: peerPrevLogIndex,
                     prevLogTerm: peerPrevLogTerm,
                     entries: entriesToSend,
-                    leaderCommit: volatileStateSnapshot.commitIndex,
+                    leaderCommit: commitIndex,
                 )
 
                 let result = try await transport.appendEntries(appendEntriesRequest, to: peer, isolation: #isolation)

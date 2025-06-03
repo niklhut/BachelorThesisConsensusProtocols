@@ -516,37 +516,38 @@ func (rn *RaftNode) requestVotes() error {
 	var votes = 1
 	var requiredVotes = rn.Majority()
 
-	// Create a deep copy snapshot of the persistent state to avoid race conditions
-	persistentStateSnapshot := util.PersistentState{
-		OwnPeer:      rn.persistentState.OwnPeer,
-		Peers:        make([]util.Peer, len(rn.persistentState.Peers)),
-		Config:       rn.persistentState.Config,
-		CurrentTerm:  rn.persistentState.CurrentTerm,
-		Log:          make([]util.LogEntry, len(rn.persistentState.Log)),
-		StateMachine: make(map[string]string),
-		Snapshot:     rn.persistentState.Snapshot,
-		VotedFor:     rn.persistentState.VotedFor,
+	currentTerm := rn.persistentState.CurrentTerm
+	candidateID := rn.persistentState.OwnPeer.ID
+	lastLogIndex := len(rn.persistentState.Log)
+	lastLogTerm := 0
+	if lastLogIndex > 0 {
+		lastLogTerm = rn.persistentState.Log[lastLogIndex-1].Term
 	}
-	copy(persistentStateSnapshot.Peers, rn.persistentState.Peers)
-	copy(persistentStateSnapshot.Log, rn.persistentState.Log)
-	maps.Copy(persistentStateSnapshot.StateMachine, rn.persistentState.StateMachine)
+	peers := rn.persistentState.Peers
 	rn.mu.RUnlock()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Channel to collect vote responses
-	voteResults := make(chan VoteResult, len(rn.persistentState.Peers))
+	voteResults := make(chan VoteResult, len(peers))
 
 	// Start vote requests concurrently
 	var wg sync.WaitGroup
-	wg.Add(len(rn.persistentState.Peers))
+	wg.Add(len(peers))
 
-	for _, peer := range rn.persistentState.Peers {
+	for _, peer := range peers {
 		go func(peer util.Peer) {
 			defer wg.Done()
 
-			peerId, vote := rn.requestVoteFromPeer(ctx, peer, persistentStateSnapshot)
+			voteRequest := util.RequestVoteRequest{
+				Term:         currentTerm,
+				CandidateID:  candidateID,
+				LastLogIndex: lastLogIndex,
+				LastLogTerm:  lastLogTerm,
+			}
+
+			peerId, vote := rn.requestVoteFromPeer(ctx, peer, voteRequest)
 
 			select {
 			case voteResults <- VoteResult{peerId: peerId, vote: vote}:
@@ -590,7 +591,7 @@ func (rn *RaftNode) requestVotes() error {
 			if votes >= requiredVotes {
 				rn.logger.Info("Received majority of votes, becoming leader",
 					slog.Int("votes", votes),
-					slog.Int("numberOfPeers", len(rn.persistentState.Peers)+1),
+					slog.Int("numberOfPeers", len(peers)+1),
 				)
 				rn.becomeLeader()
 				rn.mu.Unlock()
@@ -609,28 +610,21 @@ func (rn *RaftNode) requestVotes() error {
 	if rn.volatileState.State == util.ServerStateCandidate {
 		rn.logger.Info("Election failed",
 			slog.Int("votes", votes),
-			slog.Int("numberOfPeers", len(rn.persistentState.Peers)+1),
+			slog.Int("numberOfPeers", len(peers)+1),
 		)
 	}
 
 	return nil
 }
 
-func (rn *RaftNode) requestVoteFromPeer(ctx context.Context, peer util.Peer, persistentStateSnapshot util.PersistentState) (int, util.RequestVoteResponse) {
+func (rn *RaftNode) requestVoteFromPeer(
+	ctx context.Context,
+	peer util.Peer,
+	voteRequest util.RequestVoteRequest,
+) (int, util.RequestVoteResponse) {
 	rn.logger.Debug("Requesting vote",
 		slog.Int("peerId", peer.ID),
 	)
-
-	voteRequest := util.RequestVoteRequest{
-		Term:         persistentStateSnapshot.CurrentTerm,
-		CandidateID:  persistentStateSnapshot.OwnPeer.ID,
-		LastLogIndex: len(persistentStateSnapshot.Log),
-		LastLogTerm:  0, // Set it below
-	}
-
-	if len(persistentStateSnapshot.Log) > 0 {
-		voteRequest.LastLogTerm = persistentStateSnapshot.Log[len(persistentStateSnapshot.Log)-1].Term
-	}
 
 	response, err := rn.transport.RequestVote(ctx, voteRequest, peer)
 	if err != nil {
@@ -660,22 +654,11 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 
 	rn.resetElectionTimer()
 
-	// Create deep copies to avoid race conditions
-	persistentStateSnapshot := util.PersistentState{
-		OwnPeer:      rn.persistentState.OwnPeer,
-		Peers:        make([]util.Peer, len(rn.persistentState.Peers)),
-		Config:       rn.persistentState.Config,
-		CurrentTerm:  rn.persistentState.CurrentTerm,
-		Log:          make([]util.LogEntry, len(rn.persistentState.Log)),
-		StateMachine: make(map[string]string),
-		Snapshot:     rn.persistentState.Snapshot,
-		VotedFor:     rn.persistentState.VotedFor,
-	}
-	copy(persistentStateSnapshot.Peers, rn.persistentState.Peers)
-	copy(persistentStateSnapshot.Log, rn.persistentState.Log)
-	maps.Copy(persistentStateSnapshot.StateMachine, rn.persistentState.StateMachine)
-
-	volatileStateSnapshot := rn.volatileState
+	currentTerm := rn.persistentState.CurrentTerm
+	leaderID := rn.persistentState.OwnPeer.ID
+	peers := rn.persistentState.Peers
+	commitIndex := rn.volatileState.CommitIndex
+	originalLogLength := len(rn.persistentState.Log)
 
 	// Add log entries to log
 	rn.persistentState.Log = append(rn.persistentState.Log, entries...)
@@ -689,18 +672,18 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 		slog.Any("entries", entries),
 	)
 
-	replicationTracker.MarkSuccess(persistentStateSnapshot.OwnPeer.ID)
+	replicationTracker.MarkSuccess(leaderID)
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Start replication to all peers concurrently
 	var wg sync.WaitGroup
-	for _, peer := range persistentStateSnapshot.Peers {
+	for _, peer := range peers {
 		wg.Add(1)
 		go func(peer util.Peer) {
 			defer wg.Done()
 
-			err := rn.replicateLogToPeer(ctx, peer, replicationTracker, persistentStateSnapshot, volatileStateSnapshot, entries)
+			err := rn.replicateLogToPeer(ctx, peer, replicationTracker, currentTerm, leaderID, commitIndex, originalLogLength, entries)
 			if err != nil {
 				rn.logger.Error("Failed to replicate to peer",
 					slog.Int("peerId", peer.ID),
@@ -729,8 +712,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 	term := rn.persistentState.CurrentTerm
 	rn.mu.RUnlock()
 
-	if state == util.ServerStateLeader &&
-		term == persistentStateSnapshot.CurrentTerm {
+	if state == util.ServerStateLeader && term == currentTerm {
 		rn.updateCommitIndexAndApply()
 	}
 
@@ -742,12 +724,14 @@ func (rn *RaftNode) replicateLogToPeer(
 	ctx context.Context,
 	peer util.Peer,
 	replicationTracker *util.ReplicationTracker,
-	persistentStateSnapshot util.PersistentState,
-	volatileStateSnapshot util.VolatileState,
+	currentTerm int,
+	leaderID int,
+	commitIndex int,
+	originalLogLength int,
 	entries []util.LogEntry,
 ) error {
 	retryCount := 0
-	targetEndIndex := len(persistentStateSnapshot.Log) + len(entries)
+	targetEndIndex := originalLogLength + len(entries)
 
 	for {
 		select {
@@ -760,7 +744,7 @@ func (rn *RaftNode) replicateLogToPeer(
 
 		// Check conditions for continuing
 		if rn.volatileState.State != util.ServerStateLeader ||
-			rn.persistentState.CurrentTerm != persistentStateSnapshot.CurrentTerm ||
+			rn.persistentState.CurrentTerm != currentTerm ||
 			rn.firstPeerWithID(peer.ID) == nil {
 			rn.releaseLockWithLogger("replicateLogToPeer")
 			return nil
@@ -793,16 +777,16 @@ func (rn *RaftNode) replicateLogToPeer(
 
 		// Calculate entries to send
 		var entriesToSend []util.LogEntry
-		if peerNextIndex <= len(persistentStateSnapshot.Log) {
+		if peerNextIndex <= originalLogLength {
 			// Peer needs entries from the original log (catch-up scenario)
 			startIndex := peerNextIndex - 1 // Convert to 0-based index
 			entriesToSend = rn.persistentState.Log[startIndex:]
-		} else if peerNextIndex == len(persistentStateSnapshot.Log)+1 {
+		} else if peerNextIndex == originalLogLength+1 {
 			// Peer is up-to-date with original log, send only new entries
 			entriesToSend = entries
 		} else {
 			// Peer's nextIndex is beyond what we expect - reset and retry
-			rn.leaderState.NextIndex[peer.ID] = len(persistentStateSnapshot.Log) + 1
+			rn.leaderState.NextIndex[peer.ID] = originalLogLength + 1
 			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			continue
 		}
@@ -818,12 +802,12 @@ func (rn *RaftNode) replicateLogToPeer(
 		)
 
 		appendEntriesRequest := util.AppendEntriesRequest{
-			Term:         persistentStateSnapshot.CurrentTerm,
-			LeaderID:     persistentStateSnapshot.OwnPeer.ID,
+			Term:         currentTerm,
+			LeaderID:     leaderID,
 			PrevLogIndex: peerPrevLogIndex,
 			PrevLogTerm:  peerPrevLogTerm,
 			Entries:      entriesToSend,
-			LeaderCommit: volatileStateSnapshot.CommitIndex,
+			LeaderCommit: commitIndex,
 		}
 
 		result, err := rn.transport.AppendEntries(ctx, appendEntriesRequest, peer)

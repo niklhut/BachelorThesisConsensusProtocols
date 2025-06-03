@@ -406,13 +406,16 @@ func (rn *RaftNode) stopHeartbeatTask() {
 }
 
 func (rn *RaftNode) heartbeatLoop(ctx context.Context) {
+	rn.mu.RLock()
+	heartbeatInterval := rn.persistentState.Config.HeartbeatIntervalMs
+	rn.mu.RUnlock()
+
 	for {
 		var timeout time.Duration
 		var action func() error
 
 		rn.mu.RLock()
 		state := rn.volatileState.State
-		heartbeatInterval := rn.persistentState.Config.HeartbeatIntervalMs
 		rn.mu.RUnlock()
 
 		if state == util.ServerStateLeader {

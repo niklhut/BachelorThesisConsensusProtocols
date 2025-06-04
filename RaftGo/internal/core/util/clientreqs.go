@@ -50,3 +50,14 @@ type ServerTermResponse struct {
 	// The term of the server
 	Term int `json:"term"`
 }
+
+type ImplementationVersionResponse struct {
+	// The ID of the server
+	ID int `json:"id"`
+
+	// The implementation version of the server
+	Implementation string `json:"implementation"`
+
+	// The version of the Raft implementation
+	Version string `json:"version"`
+}

@@ -360,6 +360,17 @@ func (rn *RaftNode) GetTerm(ctx context.Context) util.ServerTermResponse {
 	}
 }
 
+func (rn *RaftNode) GetImplementationVersion(ctx context.Context) util.ImplementationVersionResponse {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
+	return util.ImplementationVersionResponse{
+		ID:             rn.persistentState.OwnPeer.ID,
+		Implementation: "Go",
+		Version:        "1.2.0",
+	}
+}
+
 // -- Node Lifecycle --
 
 // Start starts the node.

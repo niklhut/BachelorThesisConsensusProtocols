@@ -341,6 +341,70 @@ func (x *ServerTermResponse) GetTerm() uint64 {
 	return 0
 }
 
+// Response containing the implementation version of the server
+type ImplementationVersionResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The ID of the server
+	Id uint32 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// The implementation version of the server
+	Implementation string `protobuf:"bytes,2,opt,name=implementation,proto3" json:"implementation,omitempty"`
+	// The version of the Raft implementation
+	Version       string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ImplementationVersionResponse) Reset() {
+	*x = ImplementationVersionResponse{}
+	mi := &file_client_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ImplementationVersionResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ImplementationVersionResponse) ProtoMessage() {}
+
+func (x *ImplementationVersionResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_client_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ImplementationVersionResponse.ProtoReflect.Descriptor instead.
+func (*ImplementationVersionResponse) Descriptor() ([]byte, []int) {
+	return file_client_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *ImplementationVersionResponse) GetId() uint32 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *ImplementationVersionResponse) GetImplementation() string {
+	if x != nil {
+		return x.Implementation
+	}
+	return ""
+}
+
+func (x *ImplementationVersionResponse) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
 var File_client_proto protoreflect.FileDescriptor
 
 const file_client_proto_rawDesc = "" +
@@ -372,14 +436,19 @@ const file_client_proto_rawDesc = "" +
 	"\x05state\x18\x02 \x01(\x0e2\x11.raft.ServerStateR\x05state\"8\n" +
 	"\x12ServerTermResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x12\n" +
-	"\x04term\x18\x02 \x01(\x04R\x04term2\xa1\x02\n" +
+	"\x04term\x18\x02 \x01(\x04R\x04term\"q\n" +
+	"\x1dImplementationVersionResponse\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\rR\x02id\x12&\n" +
+	"\x0eimplementation\x18\x02 \x01(\tR\x0eimplementation\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion2\xfc\x02\n" +
 	"\n" +
 	"RaftClient\x12*\n" +
 	"\x03Put\x12\x10.raft.PutRequest\x1a\x11.raft.PutResponse\x12*\n" +
 	"\x03Get\x12\x10.raft.GetRequest\x1a\x11.raft.GetResponse\x12/\n" +
 	"\bGetDebug\x12\x10.raft.GetRequest\x1a\x11.raft.GetResponse\x12E\n" +
 	"\x0eGetServerState\x12\x16.google.protobuf.Empty\x1a\x19.raft.ServerStateResponse\"\x00\x12C\n" +
-	"\rGetServerTerm\x12\x16.google.protobuf.Empty\x1a\x18.raft.ServerTermResponse\"\x00B:Z8github.com/niklhut/raft_go/internal/transport/grpc/protob\x06proto3"
+	"\rGetServerTerm\x12\x16.google.protobuf.Empty\x1a\x18.raft.ServerTermResponse\"\x00\x12Y\n" +
+	"\x18GetImplementationVersion\x12\x16.google.protobuf.Empty\x1a#.raft.ImplementationVersionResponse\"\x00B:Z8github.com/niklhut/raft_go/internal/transport/grpc/protob\x06proto3"
 
 var (
 	file_client_proto_rawDescOnce sync.Once
@@ -393,34 +462,37 @@ func file_client_proto_rawDescGZIP() []byte {
 	return file_client_proto_rawDescData
 }
 
-var file_client_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_client_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_client_proto_goTypes = []any{
-	(*PutRequest)(nil),          // 0: raft.PutRequest
-	(*PutResponse)(nil),         // 1: raft.PutResponse
-	(*GetRequest)(nil),          // 2: raft.GetRequest
-	(*GetResponse)(nil),         // 3: raft.GetResponse
-	(*ServerStateResponse)(nil), // 4: raft.ServerStateResponse
-	(*ServerTermResponse)(nil),  // 5: raft.ServerTermResponse
-	(*Peer)(nil),                // 6: raft.Peer
-	(ServerState)(0),            // 7: raft.ServerState
-	(*emptypb.Empty)(nil),       // 8: google.protobuf.Empty
+	(*PutRequest)(nil),                    // 0: raft.PutRequest
+	(*PutResponse)(nil),                   // 1: raft.PutResponse
+	(*GetRequest)(nil),                    // 2: raft.GetRequest
+	(*GetResponse)(nil),                   // 3: raft.GetResponse
+	(*ServerStateResponse)(nil),           // 4: raft.ServerStateResponse
+	(*ServerTermResponse)(nil),            // 5: raft.ServerTermResponse
+	(*ImplementationVersionResponse)(nil), // 6: raft.ImplementationVersionResponse
+	(*Peer)(nil),                          // 7: raft.Peer
+	(ServerState)(0),                      // 8: raft.ServerState
+	(*emptypb.Empty)(nil),                 // 9: google.protobuf.Empty
 }
 var file_client_proto_depIdxs = []int32{
-	6, // 0: raft.PutResponse.leader_hint:type_name -> raft.Peer
-	6, // 1: raft.GetResponse.leader_hint:type_name -> raft.Peer
-	7, // 2: raft.ServerStateResponse.state:type_name -> raft.ServerState
+	7, // 0: raft.PutResponse.leader_hint:type_name -> raft.Peer
+	7, // 1: raft.GetResponse.leader_hint:type_name -> raft.Peer
+	8, // 2: raft.ServerStateResponse.state:type_name -> raft.ServerState
 	0, // 3: raft.RaftClient.Put:input_type -> raft.PutRequest
 	2, // 4: raft.RaftClient.Get:input_type -> raft.GetRequest
 	2, // 5: raft.RaftClient.GetDebug:input_type -> raft.GetRequest
-	8, // 6: raft.RaftClient.GetServerState:input_type -> google.protobuf.Empty
-	8, // 7: raft.RaftClient.GetServerTerm:input_type -> google.protobuf.Empty
-	1, // 8: raft.RaftClient.Put:output_type -> raft.PutResponse
-	3, // 9: raft.RaftClient.Get:output_type -> raft.GetResponse
-	3, // 10: raft.RaftClient.GetDebug:output_type -> raft.GetResponse
-	4, // 11: raft.RaftClient.GetServerState:output_type -> raft.ServerStateResponse
-	5, // 12: raft.RaftClient.GetServerTerm:output_type -> raft.ServerTermResponse
-	8, // [8:13] is the sub-list for method output_type
-	3, // [3:8] is the sub-list for method input_type
+	9, // 6: raft.RaftClient.GetServerState:input_type -> google.protobuf.Empty
+	9, // 7: raft.RaftClient.GetServerTerm:input_type -> google.protobuf.Empty
+	9, // 8: raft.RaftClient.GetImplementationVersion:input_type -> google.protobuf.Empty
+	1, // 9: raft.RaftClient.Put:output_type -> raft.PutResponse
+	3, // 10: raft.RaftClient.Get:output_type -> raft.GetResponse
+	3, // 11: raft.RaftClient.GetDebug:output_type -> raft.GetResponse
+	4, // 12: raft.RaftClient.GetServerState:output_type -> raft.ServerStateResponse
+	5, // 13: raft.RaftClient.GetServerTerm:output_type -> raft.ServerTermResponse
+	6, // 14: raft.RaftClient.GetImplementationVersion:output_type -> raft.ImplementationVersionResponse
+	9, // [9:15] is the sub-list for method output_type
+	3, // [3:9] is the sub-list for method input_type
 	3, // [3:3] is the sub-list for extension type_name
 	3, // [3:3] is the sub-list for extension extendee
 	0, // [0:3] is the sub-list for field type_name
@@ -441,7 +513,7 @@ func file_client_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_client_proto_rawDesc), len(file_client_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

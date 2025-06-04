@@ -73,6 +73,15 @@ func (s *RaftClientService) GetServerTerm(ctx context.Context, _ *emptypb.Empty)
 	}, nil
 }
 
+func (s *RaftClientService) GetImplementationVersion(ctx context.Context, _ *emptypb.Empty) (*proto.ImplementationVersionResponse, error) {
+	version := s.node.GetImplementationVersion(ctx)
+	return &proto.ImplementationVersionResponse{
+		Id:             uint32(version.ID),
+		Implementation: version.Implementation,
+		Version:        version.Version,
+	}, nil
+}
+
 func convertPeerToProto(peer *util.Peer) *proto.Peer {
 	if peer == nil {
 		return nil

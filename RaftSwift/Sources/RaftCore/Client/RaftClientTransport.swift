@@ -64,4 +64,15 @@ public protocol RaftClientTransport: Sendable {
         of peer: Peer,
         isolation: isolated (any Actor)
     ) async throws -> ServerTermResponse
+
+    /// Sends a GetImplementationVersion request to the specified peer.
+    /// - Parameters:
+    ///   - peer: The peer to send the request to.
+    ///   - isolation: The isolation to use for the request.
+    /// - Returns: The response from the peer.
+    /// - Throws: An error if the request could not be sent.
+    func getImplementationVersion(
+        of peer: Peer,
+        isolation: isolated (any Actor)
+    ) async throws -> ImplementationVersionResponse
 }

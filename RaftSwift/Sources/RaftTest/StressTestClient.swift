@@ -18,11 +18,15 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// The leader of the cluster.
     var leader: Peer?
 
+    /// The machine name of the current machine on which the test is running.
+    let machineName: String
+
     /// Initializes a new instance of the StressTestClient class.
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient<Transport>) {
+    public init(client: RaftClient<Transport>, machineName: String) {
         self.client = client
+        self.machineName = machineName
     }
 
     /// Runs the stress test client.
@@ -102,7 +106,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                 - Throughput: \(throughput) ops/sec
                 - Duration: \(testDuration) seconds
                 - Concurrency Level: \(concurrency)
-                """
+                """,
             )
         }
 
@@ -167,5 +171,78 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         } catch {
             return await putEntry(value, startTime: startTime)
         }
+    }
+
+    private func sendStressTestData(_ result: RaftStressTestResult) async throws {
+        // First get client implementation versions
+        let clientImplementationVersions = try await withThrowingTaskGroup(of: ImplementationVersionResponse.self) { group in
+            for peer in client.peers {
+                group.addTask {
+                    try await self.client.getImplementationVersion(of: peer)
+                }
+            }
+
+            var implementationVersions = [ImplementationVersionResponse]()
+            for try await version in group {
+                implementationVersions.append(version)
+            }
+            return implementationVersions
+        }
+
+        let implementationVersions = clientImplementationVersions.map { (implementation: $0.implementation, version: $0.version) }
+
+        guard let implementationVersion = implementationVersions.first else { return }
+        if !implementationVersions.allSatisfy({ $0 == implementationVersion }) {
+            logger.error("Implementation versions do not match across all nodes")
+        }
+
+        let baseUrl = ProcessInfo.processInfo.environment["STRESS_TEST_BASE_URL"] ?? "http://localhost:3000"
+        logger.info("Sending stress test data to \(baseUrl)")
+        guard let url = URL(string: baseUrl + "/api/stress-test") else { return }
+
+        let payload = RaftStressTestPayload(
+            messagesSent: result.messagesSent,
+            successfulMessages: result.successfulMessages,
+            averageLatency: result.averageLatency,
+            averageThroughput: result.averageThroughput,
+            totalDuration: result.totalDuration,
+            machine: machineName,
+            implementationVersion: RaftImplementationVersion(
+                implementation: implementationVersion.implementation,
+                version: implementationVersion.version,
+            ),
+        )
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            let jsonData = try JSONEncoder().encode(payload)
+            request.httpBody = jsonData
+        } catch {
+            print("Failed to encode payload:", error)
+            return
+        }
+
+        let task = URLSession.shared.dataTask(with: request) { data, response, error in
+            if let error {
+                print("Request error:", error)
+                return
+            }
+
+            guard let httpResponse = response as? HTTPURLResponse else {
+                print("Invalid response")
+                return
+            }
+
+            print("Response code:", httpResponse.statusCode)
+
+            if let data, let responseBody = String(data: data, encoding: .utf8) {
+                print("Response body:", responseBody)
+            }
+        }
+
+        task.resume()
     }
 }

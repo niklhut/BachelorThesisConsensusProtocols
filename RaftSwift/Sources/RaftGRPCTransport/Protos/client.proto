@@ -20,6 +20,9 @@ service RaftClient {
 
   // Get the term of a server
   rpc GetServerTerm(google.protobuf.Empty) returns (ServerTermResponse) {}
+
+  // Get the implementation version of a server
+  rpc GetImplementationVersion(google.protobuf.Empty) returns (ImplementationVersionResponse) {}
 }
 
 // Request to store or update a key-value pair
@@ -69,4 +72,16 @@ message ServerTermResponse {
 
   // The term of the server
   uint64 term = 2;
+}
+
+// Response containing the implementation version of the server
+message ImplementationVersionResponse {
+  // The ID of the server
+  uint32 id = 1;
+
+  // The implementation version of the server
+  string implementation = 2;
+
+  // The version of the Raft implementation
+  string version = 3;
 }

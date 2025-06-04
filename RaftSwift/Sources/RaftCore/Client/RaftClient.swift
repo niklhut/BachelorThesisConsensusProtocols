@@ -94,6 +94,16 @@ public actor RaftClient<Transport: RaftClientTransport> {
         try await transport.getTerm(of: peer, isolation: #isolation)
     }
 
+    /// Sends a GetImplementationVersion request to the specified peer.
+    /// - Parameters:
+    ///   - peer: The peer to send the request to.
+    ///   - isolation: The isolation to use for the request.
+    /// - Returns: The response from the peer.
+    /// - Throws: An error if the request could not be sent.
+    public func getImplementationVersion(of peer: Peer) async throws -> ImplementationVersionResponse {
+        try await transport.getImplementationVersion(of: peer, isolation: #isolation)
+    }
+
     // MARK: - Helpers
 
     /// Finds the leader node.
@@ -107,7 +117,7 @@ public actor RaftClient<Transport: RaftClientTransport> {
         for peer in peers where peerToExclude != peer {
             let response = try await transport.getServerState(
                 of: peer,
-                isolation: #isolation
+                isolation: #isolation,
             )
             if response.state == .leader {
                 leader = peer

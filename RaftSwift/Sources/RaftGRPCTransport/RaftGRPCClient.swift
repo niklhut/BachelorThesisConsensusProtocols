@@ -12,14 +12,18 @@ public final class RaftGRPCClient: RaftTestApplication {
     /// The logger
     let logger = Logger(label: "raft.RaftGRPCClient")
 
-    public init(peers: [Peer]) {
+    /// The machine name of the current machine on which the test is running.
+    let machineName: String
+
+    public init(peers: [Peer], machineName: String) {
         self.peers = peers
+        self.machineName = machineName
     }
 
     private func setupClient() async throws -> RaftClient<GRPCClientTransport> {
         let client = RaftClient(
             peers: peers,
-            transport: GRPCClientTransport(clientPool: GRPCClientPool())
+            transport: GRPCClientTransport(clientPool: GRPCClientPool()),
         )
 
         return client
@@ -36,7 +40,7 @@ public final class RaftGRPCClient: RaftTestApplication {
     public func runStressTest(operations: Int, concurrency: Int) async throws {
         let client = try await setupClient()
 
-        let stressTestClient = StressTestClient(client: client)
+        let stressTestClient = StressTestClient(client: client, machineName: machineName)
 
         try await stressTestClient.run(operations: operations, concurrency: concurrency)
     }

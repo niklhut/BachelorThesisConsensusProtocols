@@ -11,8 +11,12 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
     /// The logger
     let logger = Logger(label: "raft.RaftDistributedActorClient")
 
-    public init(peers: [Peer]) {
+    /// The machine name of the current machine on which the test is running.
+    let machineName: String
+
+    public init(peers: [Peer], machineName: String) {
         self.peers = peers
+        self.machineName = machineName
     }
 
     private func setupClient() async throws -> RaftClient<DistributedActorClientTransport> {
@@ -29,7 +33,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
                 group.addTask {
                     let _ = try await actorSystem.cluster.joined(
                         endpoint: Cluster.Endpoint(host: peer.address, port: peer.port),
-                        within: .seconds(5)
+                        within: .seconds(5),
                     )
                 }
             }
@@ -41,7 +45,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
 
         let client = RaftClient(
             peers: peers,
-            transport: transport
+            transport: transport,
         )
 
         return client
@@ -58,7 +62,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
     public func runStressTest(operations: Int, concurrency: Int) async throws {
         let client = try await setupClient()
 
-        let stressTestClient = StressTestClient(client: client)
+        let stressTestClient = StressTestClient(client: client, machineName: machineName)
 
         try await stressTestClient.run(operations: operations, concurrency: concurrency)
     }

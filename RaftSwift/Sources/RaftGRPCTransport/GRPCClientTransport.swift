@@ -33,7 +33,7 @@ final class GRPCClientTransport: RaftClientTransport {
 
         return GetResponse(
             value: response.hasValue ? response.value : nil,
-            leaderHint: leaderHint
+            leaderHint: leaderHint,
         )
     }
 
@@ -57,7 +57,7 @@ final class GRPCClientTransport: RaftClientTransport {
 
         return GetResponse(
             value: response.hasValue ? response.value : nil,
-            leaderHint: leaderHint
+            leaderHint: leaderHint,
         )
     }
 
@@ -84,7 +84,7 @@ final class GRPCClientTransport: RaftClientTransport {
 
         return PutResponse(
             success: response.success,
-            leaderHint: leaderHint
+            leaderHint: leaderHint,
         )
     }
 
@@ -99,7 +99,7 @@ final class GRPCClientTransport: RaftClientTransport {
 
         return try ServerStateResponse(
             id: Int(response.id),
-            state: .fromGRPC(response.state)
+            state: .fromGRPC(response.state),
         )
     }
 
@@ -114,7 +114,23 @@ final class GRPCClientTransport: RaftClientTransport {
 
         return ServerTermResponse(
             id: Int(response.id),
-            term: Int(response.term)
+            term: Int(response.term),
+        )
+    }
+
+    func getImplementationVersion(
+        of peer: Peer,
+        isolation: isolated any Actor
+    ) async throws -> ImplementationVersionResponse {
+        let client = try await clientPool.client(for: peer)
+        let peerClient = Raft_RaftClient.Client(wrapping: client)
+
+        let response = try await peerClient.getImplementationVersion(Google_Protobuf_Empty())
+
+        return ImplementationVersionResponse(
+            id: Int(response.id),
+            implementation: response.implementation + " (GRPC)",
+            version: response.version,
         )
     }
 }

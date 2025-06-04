@@ -253,6 +253,17 @@ public actor RaftNode {
         )
     }
 
+    /// Handles a GetImplementationVersion RPC.
+    ///
+    /// - Returns: The ImplementationVersionResponse.
+    public func getImplementationVersion() async -> ImplementationVersionResponse {
+        ImplementationVersionResponse(
+            id: persistentState.ownPeer.id,
+            implementation: "Swift",
+            version: "1.2.0",
+        )
+    }
+
     // MARK: - Node Lifecycle
 
     /// Starts the node.

@@ -53,7 +53,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         var nextOperationIndex = concurrency
 
         // Use task group to maintain constant concurrency
-        await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
+        let result = await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
             // Initialize with 'concurrency' number of tasks
             for i in 0 ..< min(concurrency, operations) {
                 group.addTask {
@@ -101,17 +101,21 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             let averageLatency = successful > 0 ? totalLatency / Double(operations) : 0
             let throughput = testDuration > 0 ? Double(operations) / testDuration : 0
 
-            logger.info(
-                """
-                Stress Test Results:
-                - Success Rate: \(successful)/\(operations) (\(Double(successful) / Double(operations) * 100)%)
-                - Average Latency: \(averageLatency) ms
-                - Throughput: \(throughput) ops/sec
-                - Duration: \(testDuration) seconds
-                - Concurrency Level: \(concurrency)
-                """,
+            let result = RaftStressTestResult(
+                messagesSent: operations,
+                successfulMessages: successful,
+                averageLatency: averageLatency,
+                averageThroughput: throughput,
+                totalDuration: testDuration,
+                concurrency: concurrency,
             )
+
+            logger.info(.init(stringLiteral: result.description))
+
+            return result
         }
+
+        try await sendStressTestData(result)
 
         // Perform sanity check to see that all operations are actually persisted on all nodes
         logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
@@ -209,8 +213,9 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             averageLatency: result.averageLatency,
             averageThroughput: result.averageThroughput,
             totalDuration: result.totalDuration,
+            concurrency: result.concurrency,
             machine: machineName,
-            implementationVersion: RaftImplementationVersion(
+            peerVersion: RaftImplementationVersion(
                 implementation: implementationVersion.implementation,
                 version: implementationVersion.version,
             ),

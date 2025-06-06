@@ -21,15 +21,11 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// The leader of the cluster.
     var leader: Peer?
 
-    /// The machine name of the current machine on which the test is running.
-    let machineName: String
-
     /// Initializes a new instance of the StressTestClient class.
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient<Transport>, machineName: String) {
+    public init(client: RaftClient<Transport>) {
         self.client = client
-        self.machineName = machineName
     }
 
     /// Runs the stress test client.
@@ -108,6 +104,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                 averageThroughput: throughput,
                 totalDuration: testDuration,
                 concurrency: concurrency,
+                numberOfPeers: client.peers.count,
             )
 
             logger.info(.init(stringLiteral: result.description))
@@ -207,6 +204,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         logger.info("Sending stress test data to \(baseUrl)")
         guard let url = URL(string: baseUrl + "/api/stress-test") else { return }
 
+        let machineName = ProcessInfo.processInfo.environment["STRESS_TEST_MACHINE_NAME"] ?? "Unknown"
+
         let payload = RaftStressTestPayload(
             messagesSent: result.messagesSent,
             successfulMessages: result.successfulMessages,
@@ -215,6 +214,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             totalDuration: result.totalDuration,
             concurrency: result.concurrency,
             machine: machineName,
+            numberOfPeers: result.numberOfPeers,
             peerVersion: RaftImplementationVersion(
                 implementation: implementationVersion.implementation,
                 version: implementationVersion.version,
@@ -224,6 +224,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+        let apiKey = ProcessInfo.processInfo.environment["STRESS_TEST_API_KEY"] ?? ""
+        request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
 
         do {
             let jsonData = try JSONEncoder().encode(payload)

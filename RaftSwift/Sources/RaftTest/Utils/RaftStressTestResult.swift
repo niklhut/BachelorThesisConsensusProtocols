@@ -5,6 +5,7 @@ struct RaftStressTestResult: Codable {
     let averageThroughput: Double
     let totalDuration: Double
     let concurrency: Int
+    let numberOfPeers: Int
 
     var description: String {
         """
@@ -15,6 +16,7 @@ struct RaftStressTestResult: Codable {
         - Average Throughput: \(averageThroughput) ops/sec
         - Total Duration: \(totalDuration) seconds
         - Concurrency Level: \(concurrency)
+        - Number of Peers: \(numberOfPeers)
         """
     }
 }
@@ -27,6 +29,7 @@ struct RaftStressTestPayload: Codable {
     let totalDuration: Double
     let concurrency: Int
     let machine: String
+    let numberOfPeers: Int
     let peerVersion: RaftImplementationVersion
 }
 

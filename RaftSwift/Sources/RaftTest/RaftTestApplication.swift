@@ -5,8 +5,7 @@ public protocol RaftTestApplication: Sendable {
     /// Initializes the client
     /// - Parameters:
     ///   - peers: The list of peers
-    ///   - machineName: The name of the machine on which the test is running
-    init(peers: [Peer], machineName: String)
+    init(peers: [Peer])
 
     /// Runs the interactive client
     /// - Throws: Any errors thrown by the client

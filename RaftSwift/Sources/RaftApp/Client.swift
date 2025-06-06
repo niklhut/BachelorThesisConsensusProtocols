@@ -41,16 +41,13 @@ final class Client: AsyncParsableCommand {
     @Flag(help: "Use Distributed Actor System for transport")
     var useDistributedActorSystem: Bool = false
 
-    @Option(help: "Machine name of the current machine on which the test is running")
-    var machineName: String
-
     // MARK: - Run
 
     func run() async throws {
         let client: any RaftTestApplication = if useDistributedActorSystem {
-            RaftDistributedActorClient(peers: peers, machineName: machineName)
+            RaftDistributedActorClient(peers: peers)
         } else {
-            RaftGRPCClient(peers: peers, machineName: machineName)
+            RaftGRPCClient(peers: peers)
         }
 
         if interactive {

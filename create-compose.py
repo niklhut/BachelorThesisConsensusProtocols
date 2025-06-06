@@ -1,7 +1,7 @@
 import argparse
 import yaml
 
-def generate_compose(num_peers, use_actors, image, client_image):
+def generate_compose(num_peers, use_actors, image, client_image, operations):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -40,7 +40,7 @@ def generate_compose(num_peers, use_actors, image, client_image):
         "./Raft", "client",
         "--peers", peers,
         "--stress-test",
-        "--operations", "20000"
+        "--operations", str(operations),
     ]
     if use_actors:
         raw_client_cmd.append("--use-distributed-actor-system")
@@ -51,6 +51,11 @@ def generate_compose(num_peers, use_actors, image, client_image):
     services["raft_client"] = {
         "image": client_image,
         "container_name": "raft_client",
+        "environment": [
+            "STRESS_TEST_BASE_URL=${STRESS_TEST_BASE_URL}",
+            "STRESS_TEST_API_KEY=${STRESS_TEST_API_KEY}",
+            "STRESS_TEST_MACHINE_NAME=${STRESS_TEST_MACHINE_NAME}",
+        ],
         "depends_on": [f"raft_node_{i}" for i in range(1, num_peers + 1)],
         "networks": [network_name],
         "entrypoint": ["sh", "-c", client_shell_cmd]
@@ -75,9 +80,10 @@ def main():
     parser.add_argument("--output", type=str, default="docker-compose.yml", help="Output YAML file")
     parser.add_argument("--image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--client-image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
+    parser.add_argument("--operations", type=int, default=20000, help="Number of operations to perform")
     args = parser.parse_args()
 
-    compose_yaml = generate_compose(args.peers, args.actors, args.image, args.client_image)
+    compose_yaml = generate_compose(args.peers, args.actors, args.image, args.client_image, args.operations)
 
     with open(args.output, "w") as f:
         yaml.dump(compose_yaml, f, default_flow_style=False, sort_keys=False)

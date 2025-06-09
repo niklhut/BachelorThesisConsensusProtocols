@@ -235,11 +235,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             return
         }
 
-        let task = URLSession.shared.dataTask(with: request) { data, response, error in
-            if let error {
-                print("Request error:", error)
-                return
-            }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 print("Invalid response")
@@ -248,11 +245,11 @@ public actor StressTestClient<Transport: RaftClientTransport> {
 
             print("Response code:", httpResponse.statusCode)
 
-            if let data, let responseBody = String(data: data, encoding: .utf8) {
+            if let responseBody = String(data: data, encoding: .utf8) {
                 print("Response body:", responseBody)
             }
+        } catch {
+            print("Request error:", error)
         }
-
-        task.resume()
     }
 }

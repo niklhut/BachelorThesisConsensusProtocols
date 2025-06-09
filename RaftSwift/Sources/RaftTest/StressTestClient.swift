@@ -112,38 +112,11 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             return result
         }
 
-        try await sendStressTestData(result)
+        #if !DEBUG
+            try await sendStressTestData(result)
+        #endif
 
-        // Perform sanity check to see that all operations are actually persisted on all nodes
-        logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
-
-        let sanityTasks = testValues.flatMap { value in
-            self.client.peers.map { peer in
-                (value, peer)
-            }
-        }
-
-        let batchSize = concurrency
-        var batchStartIndex = 0
-
-        while batchStartIndex < sanityTasks.count {
-            let batch = sanityTasks[batchStartIndex ..< min(batchStartIndex + batchSize, sanityTasks.count)]
-
-            try await withThrowingTaskGroup(of: Void.self) { group in
-                for (value, peer) in batch {
-                    group.addTask {
-                        let getRequest = GetRequest(key: value.key)
-                        let response = try await self.client.getDebug(request: getRequest, from: peer)
-                        if response.value != value.value {
-                            self.logger.error("Value mismatch for key \(value.key) on peer \(peer): expected \(String(describing: value.value)), got \(String(describing: response.value))")
-                        }
-                    }
-                }
-                try await group.waitForAll()
-            }
-
-            batchStartIndex += batchSize
-        }
+        try await sanityCheck(testValues: testValues, concurrency: concurrency)
     }
 
     // MARK: - Helpers
@@ -177,6 +150,41 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         }
     }
 
+    /// Performs a sanity check to see that all operations are actually persisted on all nodes
+    private func sanityCheck(testValues: [PutRequest], concurrency: Int) async throws {
+        logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
+
+        let sanityTasks = testValues.flatMap { value in
+            self.client.peers.map { peer in
+                (value, peer)
+            }
+        }
+
+        let batchSize = concurrency
+        var batchStartIndex = 0
+
+        while batchStartIndex < sanityTasks.count {
+            let batch = sanityTasks[batchStartIndex ..< min(batchStartIndex + batchSize, sanityTasks.count)]
+
+            try await withThrowingTaskGroup(of: Void.self) { group in
+                for (value, peer) in batch {
+                    group.addTask {
+                        let getRequest = GetRequest(key: value.key)
+                        let response = try await self.client.getDebug(request: getRequest, from: peer)
+                        if response.value != value.value {
+                            self.logger.error("Value mismatch for key \(value.key) on peer \(peer): expected \(String(describing: value.value)), got \(String(describing: response.value))")
+                        }
+                    }
+                }
+                try await group.waitForAll()
+            }
+
+            batchStartIndex += batchSize
+        }
+    }
+
+    /// Sends the stress test data to the server
+    /// - Parameter result: The result of the stress test
     private func sendStressTestData(_ result: RaftStressTestResult) async throws {
         // First get client implementation versions
         let clientImplementationVersions = try await withThrowingTaskGroup(of: ImplementationVersionResponse.self) { group in

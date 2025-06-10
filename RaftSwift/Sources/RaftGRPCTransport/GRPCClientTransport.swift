@@ -1,3 +1,4 @@
+import GRPCNIOTransportHTTP2
 import RaftCore
 import SwiftProtobuf
 
@@ -13,28 +14,55 @@ final class GRPCClientTransport: RaftClientTransport {
         self.clientPool = clientPool
     }
 
+    func resetClients() async throws {
+        try await clientPool.reset()
+    }
+
+    func runWithClientRetry<T: Sendable>(
+        peer: Peer,
+        retryCount: Int = 5,
+        isolation: isolated any Actor,
+        action: (_ client: Raft_RaftClient.Client<HTTP2ClientTransport.Posix>) async throws -> T,
+    ) async throws -> T {
+        var result: T?
+
+        for _ in 0 ..< retryCount {
+            do {
+                let client = try await clientPool.client(for: peer)
+                let peerClient = Raft_RaftClient.Client(wrapping: client)
+                result = try await action(peerClient)
+                break
+            } catch {
+                try await clientPool.reset()
+            }
+        }
+
+        return result!
+    }
+
+    // MARK: - RaftClientTransport
+
     func get(
         _ request: GetRequest,
         from peer: Peer,
         isolation: isolated any Actor
     ) async throws -> GetResponse {
-        let client = try await clientPool.client(for: peer)
-        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        try await runWithClientRetry(peer: peer, isolation: isolation) { client in
+            let response = try await client.get(.with { grpcRequest in
+                grpcRequest.key = request.key
+            })
 
-        let response = try await peerClient.get(.with { grpcRequest in
-            grpcRequest.key = request.key
-        })
+            let leaderHint: Peer? = if response.hasLeaderHint {
+                try .fromGRPC(response.leaderHint)
+            } else {
+                nil
+            }
 
-        let leaderHint: Peer? = if response.hasLeaderHint {
-            try .fromGRPC(response.leaderHint)
-        } else {
-            nil
+            return GetResponse(
+                value: response.hasValue ? response.value : nil,
+                leaderHint: leaderHint,
+            )
         }
-
-        return GetResponse(
-            value: response.hasValue ? response.value : nil,
-            leaderHint: leaderHint,
-        )
     }
 
     func getDebug(
@@ -42,23 +70,21 @@ final class GRPCClientTransport: RaftClientTransport {
         from peer: Peer,
         isolation: isolated any Actor
     ) async throws -> GetResponse {
-        let client = try await clientPool.client(for: peer)
-        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        try await runWithClientRetry(peer: peer, isolation: isolation) { client in
+            let response = try await client.getDebug(.with { grpcRequest in
+                grpcRequest.key = request.key
+            })
+            let leaderHint: Peer? = if response.hasLeaderHint {
+                try .fromGRPC(response.leaderHint)
+            } else {
+                nil
+            }
 
-        let response = try await peerClient.getDebug(.with { grpcRequest in
-            grpcRequest.key = request.key
-        })
-
-        let leaderHint: Peer? = if response.hasLeaderHint {
-            try .fromGRPC(response.leaderHint)
-        } else {
-            nil
+            return GetResponse(
+                value: response.hasValue ? response.value : nil,
+                leaderHint: leaderHint,
+            )
         }
-
-        return GetResponse(
-            value: response.hasValue ? response.value : nil,
-            leaderHint: leaderHint,
-        )
     }
 
     func put(
@@ -66,71 +92,67 @@ final class GRPCClientTransport: RaftClientTransport {
         to peer: Peer,
         isolation: isolated any Actor
     ) async throws -> PutResponse {
-        let client = try await clientPool.client(for: peer)
-        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        try await runWithClientRetry(peer: peer, isolation: isolation) { client in
+            let response = try await client.put(.with { grpcRequest in
+                grpcRequest.key = request.key
+                if let value = request.value {
+                    grpcRequest.value = value
+                }
+            })
 
-        let response = try await peerClient.put(.with { grpcRequest in
-            grpcRequest.key = request.key
-            if let value = request.value {
-                grpcRequest.value = value
+            let leaderHint: Peer? = if response.hasLeaderHint {
+                try .fromGRPC(response.leaderHint)
+            } else {
+                nil
             }
-        })
 
-        let leaderHint: Peer? = if response.hasLeaderHint {
-            try .fromGRPC(response.leaderHint)
-        } else {
-            nil
+            return PutResponse(
+                success: response.success,
+                leaderHint: leaderHint,
+            )
         }
-
-        return PutResponse(
-            success: response.success,
-            leaderHint: leaderHint,
-        )
     }
 
     func getServerState(
         of peer: Peer,
         isolation: isolated any Actor
     ) async throws -> ServerStateResponse {
-        let client = try await clientPool.client(for: peer)
-        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        try await runWithClientRetry(peer: peer, isolation: isolation) { client in
+            let response = try await client.getServerState(Google_Protobuf_Empty())
 
-        let response = try await peerClient.getServerState(Google_Protobuf_Empty())
-
-        return try ServerStateResponse(
-            id: Int(response.id),
-            state: .fromGRPC(response.state),
-        )
+            return try ServerStateResponse(
+                id: Int(response.id),
+                state: .fromGRPC(response.state),
+            )
+        }
     }
 
     func getTerm(
         of peer: Peer,
         isolation: isolated any Actor
     ) async throws -> ServerTermResponse {
-        let client = try await clientPool.client(for: peer)
-        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        try await runWithClientRetry(peer: peer, isolation: isolation) { client in
+            let response = try await client.getServerTerm(Google_Protobuf_Empty())
 
-        let response = try await peerClient.getServerTerm(Google_Protobuf_Empty())
-
-        return ServerTermResponse(
-            id: Int(response.id),
-            term: Int(response.term),
-        )
+            return ServerTermResponse(
+                id: Int(response.id),
+                term: Int(response.term),
+            )
+        }
     }
 
     func getImplementationVersion(
         of peer: Peer,
         isolation: isolated any Actor
     ) async throws -> ImplementationVersionResponse {
-        let client = try await clientPool.client(for: peer)
-        let peerClient = Raft_RaftClient.Client(wrapping: client)
+        try await runWithClientRetry(peer: peer, isolation: isolation) { client in
+            let response = try await client.getImplementationVersion(Google_Protobuf_Empty())
 
-        let response = try await peerClient.getImplementationVersion(Google_Protobuf_Empty())
-
-        return ImplementationVersionResponse(
-            id: Int(response.id),
-            implementation: response.implementation + " (GRPC)",
-            version: response.version,
-        )
+            return ImplementationVersionResponse(
+                id: Int(response.id),
+                implementation: response.implementation + " (GRPC)",
+                version: response.version,
+            )
+        }
     }
 }

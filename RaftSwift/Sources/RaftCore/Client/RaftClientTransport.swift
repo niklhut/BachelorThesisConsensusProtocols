@@ -1,6 +1,13 @@
 /// Abstraction over transport layer for Raft clients.
 /// This allows for different transport layers to be used, e.g. GRPC or Swift Distributed Actors.
 public protocol RaftClientTransport: Sendable {
+    // MARK: - Helpers
+
+    /// Resets the clients in the stored client pool.
+    func resetClients() async throws
+
+    // MARK: - RPC Calls
+
     /// Sends a Get request to the specified peer.
     /// The get request only succeeds if the node is a leader.
     /// - Parameters:

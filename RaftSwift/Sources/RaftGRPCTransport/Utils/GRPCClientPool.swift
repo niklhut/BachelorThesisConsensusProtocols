@@ -28,13 +28,19 @@ actor GRPCClientPool {
         clients[peer.id] = client
 
         Task {
-            try await client.runConnections()
+            do {
+                try await client.runConnections()
+            } catch {
+                // Log and mark this client as dead on failure
+                print("[GRPCClientPool] runConnections() failed for peer \(peer.id): \(error)")
+                clients[peer.id] = nil
+            }
         }
 
         return client
     }
 
-    deinit {
-        clients.values.forEach { $0.beginGracefulShutdown() }
+    func reset() async throws {
+        clients = [:]
     }
 }

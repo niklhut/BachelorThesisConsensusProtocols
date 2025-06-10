@@ -153,6 +153,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// Performs a sanity check to see that all operations are actually persisted on all nodes
     private func sanityCheck(testValues: [PutRequest], concurrency: Int) async throws {
         logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
+        try await Task.sleep(for: .seconds(1))
+        try await client.resetClients()
 
         let sanityTasks = testValues.flatMap { value in
             self.client.peers.map { peer in

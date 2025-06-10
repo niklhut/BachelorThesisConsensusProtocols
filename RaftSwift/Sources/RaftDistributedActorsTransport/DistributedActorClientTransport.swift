@@ -20,6 +20,10 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
 
     // MARK: - RaftClientTransport
 
+    distributed func resetClients() async throws {
+        remoteActors = [:]
+    }
+
     func get(
         _ request: GetRequest,
         from peer: Peer,

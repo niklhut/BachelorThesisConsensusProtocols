@@ -27,6 +27,11 @@ public actor RaftClient<Transport: RaftClientTransport> {
 
     // MARK: - RPC Calls
 
+    /// Resets the clients in the stored client pool.
+    public func resetClients() async throws {
+        try await transport.resetClients()
+    }
+
     /// Sends a Put request to the specified peer.
     /// The put request only succeeds if the node is a leader.
     /// - Parameters:

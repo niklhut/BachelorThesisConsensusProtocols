@@ -6,6 +6,9 @@ public actor RaftNode {
 
     /// The transport layer for peer-to-peer communication.
     private let transport: any RaftPeerTransport
+    /// The persistence layer to save snapshots
+    private let persistence: any RaftNodePersistence
+    private var isSnapshotting: Bool = false
     /// The logger for logging messages.
     let logger: Logger
 
@@ -33,8 +36,9 @@ public actor RaftNode {
     ///   - peers: The list of peers.
     ///   - config: The configuration.
     ///   - transport: The transport layer.
-    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport) {
+    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport, persistence: any RaftNodePersistence) {
         self.transport = transport
+        self.persistence = persistence
         logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
 
         persistentState = PersistentState(
@@ -61,6 +65,7 @@ public actor RaftNode {
         resetElectionTimer()
 
         if request.term < persistentState.currentTerm {
+            logger.info("Received lower term \(request.term), not voting for \(request.candidateID)")
             return RequestVoteResponse(
                 term: persistentState.currentTerm,
                 voteGranted: false,
@@ -72,6 +77,7 @@ public actor RaftNode {
         }
 
         if persistentState.votedFor == nil || persistentState.votedFor == request.candidateID, isLogAtLeastAsUpToDate(lastLogIndex: request.lastLogIndex, lastLogTerm: request.lastLogTerm) {
+            logger.trace("Granting vote to \(request.candidateID)")
             persistentState.votedFor = request.candidateID
 
             return RequestVoteResponse(
@@ -194,6 +200,56 @@ public actor RaftNode {
         )
     }
 
+    public func installSnapshot(request: InstallSnapshotRequest) async throws -> InstallSnapshotResponse {
+        logger.trace("Received install snapshot from \(request.leaderID)")
+        resetElectionTimer()
+
+        // Reply immediately if term < currentTerm
+        if request.term < persistentState.currentTerm {
+            return InstallSnapshotResponse(term: persistentState.currentTerm)
+        }
+
+        // Update term and become follower if necessary
+        if request.term > persistentState.currentTerm {
+            logger.info("Received higher term \(request.term), becoming follower of \(request.leaderID)")
+            becomeFollower(newTerm: request.term, currentLeaderId: request.leaderID)
+        }
+
+        // Save snapshot
+        try await persistence.saveSnapshot(request.snapshot, for: persistentState.ownPeer.id)
+        persistentState.snapshot = request.snapshot
+
+        let snapshotLastIndex = request.snapshot.lastIncludedIndex
+        let snapshotLastTerm = request.snapshot.lastIncludedTerm
+
+        if persistentState.log.count >= snapshotLastIndex {
+            let logIndex = snapshotLastIndex - 1
+            if logIndex >= 0, persistentState.log[logIndex].term == snapshotLastTerm {
+                // Keep log entries after the snapshot
+                persistentState.log.removeSubrange(0 ..< snapshotLastIndex)
+                logger.info("Kept \(persistentState.log.count) log entries after installing snapshot")
+            } else {
+                // Discard entire log - conflict detected
+                persistentState.log = []
+                logger.info("Discarded entire log due to conflict with snapshot")
+            }
+        } else {
+            // Log is shorter than snapshot - discard entire log
+            persistentState.log = []
+            logger.info("Discarded entire log - shorter than snapshot")
+        }
+
+        // Reset state machine using snapshot
+        persistentState.stateMachine = request.snapshot.stateMachine
+
+        // Update commit and last applied indices
+        volatileState.commitIndex = max(volatileState.commitIndex, snapshotLastIndex)
+        volatileState.lastApplied = max(volatileState.lastApplied, snapshotLastIndex)
+
+        logger.info("Successfully installed snapshot up to index \(snapshotLastIndex)")
+        return InstallSnapshotResponse(term: persistentState.currentTerm)
+    }
+
     // MARK: - Client RPCs
 
     /// Handles a Put RPC.
@@ -267,7 +323,8 @@ public actor RaftNode {
     // MARK: - Node Lifecycle
 
     /// Starts the node.
-    public func start() {
+    public func start() async {
+        await loadSnapshotOnStartup()
         startHeartbeatTask()
     }
 
@@ -312,6 +369,7 @@ public actor RaftNode {
                     continue
                 }
             }
+            logger.critical("Heartbeat task cancelled")
         }
 
         heartbeatTask = task
@@ -366,8 +424,8 @@ public actor RaftNode {
 
         let currentTerm = persistentState.currentTerm
         let candidateID = persistentState.ownPeer.id
-        let lastLogIndex = persistentState.log.count
-        let lastLogTerm = persistentState.log.last?.term ?? 0
+        let lastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
+        let lastLogTerm = persistentState.log.last?.term ?? persistentState.snapshot.lastIncludedTerm
         let peers = persistentState.peers
 
         await withTaskGroup { group in
@@ -526,9 +584,6 @@ public actor RaftNode {
 
         let targetEndIndex = originalLogLength + entries.count
 
-        // Pre-calculate outside of loop
-        let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + 1
-
         // Continue trying until successful or no longer leader
         while !Task.isCancelled, volatileState.state == .leader, persistentState.currentTerm == currentTerm, persistentState.peers.contains(peer) {
             // Check if already successful (another task marked it as successful)
@@ -542,20 +597,46 @@ public actor RaftNode {
                 return
             }
 
+            // Check if peer needs a snapshot
+            let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + 1
+            let firstLogIndex = persistentState.snapshot.lastIncludedIndex + 1
+
+            if peerNextIndex < firstLogIndex {
+                // Peer is too far behind, send snapshot
+                logger.info("Peer \(peer.id) is too far behind (nextIndex: \(peerNextIndex), firstLogIndex: \(firstLogIndex)), sending snapshot")
+                try await sendSnapshotToPeer(peer)
+                // After snapshot, replication will continue in next iteration
+                continue
+            }
+
             do {
                 let peerPrevLogIndex = peerNextIndex - 1
-                let peerPrevLogTerm = if peerPrevLogIndex > 0, peerPrevLogIndex <= persistentState.log.count {
-                    persistentState.log[peerPrevLogIndex - 1].term
+                let peerPrevLogTerm: Int
+
+                if peerPrevLogIndex == 0 {
+                    peerPrevLogTerm = 0
+                } else if peerPrevLogIndex == persistentState.snapshot.lastIncludedIndex {
+                    peerPrevLogTerm = persistentState.snapshot.lastIncludedTerm
+                } else if peerPrevLogIndex > firstLogIndex - 1 {
+                    let logArrayIndex = peerPrevLogIndex - firstLogIndex
+                    peerPrevLogTerm = persistentState.log[logArrayIndex].term
                 } else {
-                    0
+                    // This shouldn't happen after snapshot check above
+                    logger.error("Invalid prevLogIndex \(peerPrevLogIndex) for peer \(peer.id)")
+                    leaderState.nextIndex[peer.id] = firstLogIndex
+                    continue
                 }
 
                 // Calculate entries to send
                 let entriesToSend: [LogEntry]
                 if peerNextIndex <= originalLogLength {
                     // Peer needs entries from the original log (catch-up scenario)
-                    let startIndex = peerNextIndex - 1 // Convert to 0-based index
-                    entriesToSend = Array(persistentState.log[startIndex...])
+                    let startArrayIndex = peerNextIndex - firstLogIndex
+                    if startArrayIndex >= 0, startArrayIndex < persistentState.log.count {
+                        entriesToSend = Array(persistentState.log[startArrayIndex...])
+                    } else {
+                        entriesToSend = []
+                    }
                 } else if peerNextIndex == originalLogLength + 1 {
                     // Peer is up-to-date with original log, send only new entries
                     entriesToSend = entries
@@ -680,6 +761,17 @@ public actor RaftNode {
             }
 
             volatileState.lastApplied += 1
+
+            // Check if we should create a snapshot after applying entries
+            if shouldCreateSnapshot() {
+                Task {
+                    do {
+                        try await createSnapshot()
+                    } catch {
+                        logger.error("Failed to create snapshot: \(error)")
+                    }
+                }
+            }
         }
     }
 
@@ -689,14 +781,116 @@ public actor RaftNode {
     ///   - lastLogIndex: The index of other node's last log entry.
     ///   - lastLogTerm: The term of other node's last log entry.
     private func isLogAtLeastAsUpToDate(lastLogIndex: Int, lastLogTerm: Int) -> Bool {
-        let localLastLogTerm = persistentState.log.last?.term ?? 0
+        let localLastLogTerm = persistentState.log.last?.term ?? persistentState.snapshot.lastIncludedTerm
 
         if lastLogTerm != localLastLogTerm {
             return lastLogTerm > localLastLogTerm
         }
 
-        let localLastLogIndex = persistentState.log.count
+        let localLastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
         return lastLogIndex >= localLastLogIndex
+    }
+
+    // MARK: - Snapshots
+
+    /// Loads snapshot from disk during startup (add this to your init or start method)
+    private func loadSnapshotOnStartup() async {
+        do {
+            if let snapshot = try await persistence.loadSnapshot(for: persistentState.ownPeer.id) {
+                persistentState.snapshot = snapshot
+                persistentState.currentTerm = snapshot.lastIncludedTerm
+                persistentState.stateMachine = snapshot.stateMachine
+                volatileState.commitIndex = snapshot.lastIncludedIndex
+                volatileState.lastApplied = snapshot.lastIncludedIndex
+
+                logger.info("Loaded snapshot from disk up to index \(snapshot.lastIncludedIndex)")
+            }
+        } catch {
+            logger.warning("Failed to load snapshot from disk: \(error)")
+        }
+    }
+
+    /// Checks if a snapshot should be created based on log size
+    private func shouldCreateSnapshot() -> Bool {
+        let logSize = persistentState.log.count
+        let threshold = persistence.compactionThreshold
+
+        // return logSize >= threshold
+        let result = logSize >= threshold
+        if result {
+            print("shouldCreateSnapshot: \(result), logSize: \(logSize), threshold: \(threshold)")
+        }
+        return result
+    }
+
+    /// Creates a snapshot of the current state
+    private func createSnapshot() async throws {
+        if isSnapshotting {
+            return
+        }
+        isSnapshotting = true
+        defer {
+            isSnapshotting = false
+        }
+
+        let logSize = persistentState.log.count
+        let lastIncludedIndex = volatileState.lastApplied
+        guard lastIncludedIndex > 0 else {
+            logger.trace("No entries to snapshot yet")
+            return
+        }
+
+        let lastIncludedTerm = if lastIncludedIndex <= persistentState.log.count {
+            persistentState.log[lastIncludedIndex - 1].term
+        } else {
+            // Entry is in existing snapshot
+            persistentState.snapshot.lastIncludedTerm
+        }
+
+        let snapshot = Snapshot(
+            lastIncludedIndex: lastIncludedIndex,
+            lastIncludedTerm: lastIncludedTerm,
+            stateMachine: persistentState.stateMachine,
+        )
+
+        // Save snapshot
+        try await persistence.saveSnapshot(snapshot, for: persistentState.ownPeer.id)
+        persistentState.snapshot = snapshot
+
+        print("persistentState.log.count: \(persistentState.log.count), lastIncludedIndex: \(lastIncludedIndex)")
+        persistentState.log.removeSubrange(0 ..< logSize)
+        logger.info("Created snapshot up to index \(lastIncludedIndex), trimmed \(logSize) log entries")
+    }
+
+    /// Sends a snapshot to a peer that is too far behind
+    private func sendSnapshotToPeer(_ peer: Peer) async throws {
+        logger.info("Sending snapshot to \(peer.id) up to index \(persistentState.snapshot.lastIncludedIndex)")
+
+        let request = InstallSnapshotRequest(
+            term: persistentState.currentTerm,
+            leaderID: persistentState.ownPeer.id,
+            snapshot: persistentState.snapshot,
+        )
+
+        do {
+            let response = try await transport.installSnapshot(request, on: peer, isolation: #isolation)
+
+            if response.term > persistentState.currentTerm {
+                logger.info("Received higher term \(response.term), becoming follower")
+                becomeFollower(newTerm: response.term, currentLeaderId: peer.id)
+                return
+            }
+
+            // Update peer's indices after successful snapshot installation
+            leaderState.nextIndex[peer.id] = request.snapshot.lastIncludedIndex + 1
+            leaderState.matchIndex[peer.id] = request.snapshot.lastIncludedIndex
+
+            logger.info("Successfully sent snapshot to \(peer.id)")
+
+        } catch {
+            logger.error("Failed to send snapshot to \(peer.id): \(error)")
+            throw error
+        }
     }
 
     // MARK: - State Changes

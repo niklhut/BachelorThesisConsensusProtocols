@@ -6,11 +6,15 @@ public protocol RaftNodeApplication: Sendable {
     /// The list of peers
     var peers: [Peer] { get }
 
+    /// The persistence layer
+    var persistence: any RaftNodePersistence { get }
+
     /// Initializes the server
     /// - Parameters:
     ///   - ownPeer: The own peer
     ///   - peers: The list of peers
-    init(ownPeer: Peer, peers: [Peer])
+    ///   - persistence: The persistence layer
+    init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence)
 
     /// Starts the node
     func serve() async throws

@@ -99,4 +99,26 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
     ) async -> RequestVoteResponse {
         await node.requestVote(request: request)
     }
+
+    /// Handles install snapshot requests
+    /// - Parameter request: The install snapshot request
+    /// - Returns: The install snapshot response
+    func installSnapshot(
+        _ request: InstallSnapshotRequest,
+        on peer: Peer,
+        isolation: isolated any Actor,
+    ) async throws -> InstallSnapshotResponse {
+        let remoteActor = try await getRemoteActor(peer)
+
+        return try await remoteActor.getInstallSnapshot(request)
+    }
+
+    /// Handles install snapshot requests
+    /// - Parameter request: The install snapshot request
+    /// - Returns: The install snapshot response
+    distributed func getInstallSnapshot(
+        _ request: InstallSnapshotRequest,
+    ) async throws -> InstallSnapshotResponse {
+        try await node.installSnapshot(request: request)
+    }
 }

@@ -6,13 +6,15 @@ import RaftCore
 public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnectable {
     public let ownPeer: Peer
     public let peers: [Peer]
+    public let persistence: any RaftNodePersistence
 
     /// The logger
     let logger = Logger(label: "raft.RaftDistributedActorServer")
 
-    public init(ownPeer: Peer, peers: [Peer]) {
+    public init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence) {
         self.ownPeer = ownPeer
         self.peers = peers
+        self.persistence = persistence
     }
 
     public func serve() async throws {
@@ -30,7 +32,8 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
             ownPeer,
             peers: peers,
             config: RaftConfig(),
-            transport: transport
+            transport: transport,
+            persistence: persistence,
         )
 
         try await transport.setNode()

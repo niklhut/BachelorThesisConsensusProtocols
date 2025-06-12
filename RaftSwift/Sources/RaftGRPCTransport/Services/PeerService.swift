@@ -39,6 +39,18 @@ struct PeerService: Raft_RaftPeer.SimpleServiceProtocol {
     }
 
     func installSnapshot(request: Raft_InstallSnapshotRequest, context: ServerContext) async throws -> Raft_InstallSnapshotResponse {
-        throw RPCError(code: .unimplemented, message: "Not implemented")
+        let response = try await node.installSnapshot(request: InstallSnapshotRequest(
+            term: Int(request.term),
+            leaderID: Int(request.leaderID),
+            snapshot: Snapshot(
+                lastIncludedIndex: Int(request.snapshot.lastIncludedIndex),
+                lastIncludedTerm: Int(request.snapshot.lastIncludedTerm),
+                stateMachine: request.snapshot.stateMachine,
+            ),
+        ))
+
+        return .with { grpcResponse in
+            grpcResponse.term = UInt64(response.term)
+        }
     }
 }

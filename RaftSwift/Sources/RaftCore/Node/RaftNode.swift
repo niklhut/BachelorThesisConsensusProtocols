@@ -151,9 +151,7 @@ public actor RaftNode {
                 let logIndex = request.prevLogIndex + i + 1 // The absolute index of the log entry
                 let arrayIndex = logIndex - persistentState.snapshot.lastIncludedIndex - 1 // The index in the log array
 
-                assert(arrayIndex >= 0)
-
-                if arrayIndex < persistentState.log.count {
+                if arrayIndex >= 0, arrayIndex < persistentState.log.count {
                     // This is an existing entry in our log - check for conflict
                     let existingEntry = persistentState.log[arrayIndex]
                     if existingEntry.term != newEntry.term {
@@ -164,6 +162,12 @@ public actor RaftNode {
                     }
 
                     // Entry matches, will be replicated correctly
+                } else if arrayIndex < 0 {
+                    // The new entry's log index is covered by the snapshot, which means a conflict.
+                    // This can happen if the leader's snapshot is older than ours,
+                    // or if it's trying to send entries that are already in our snapshot.
+                    logger.info("New entry at index \(logIndex) is already covered by snapshot.")
+                    conflictIndex = i
                 } else {
                     // We've reached the end of our log - remaining entries are new
                     break
@@ -175,8 +179,17 @@ public actor RaftNode {
                 let deleteFromIndex = request.prevLogIndex + conflictIndex + 1 // The absolute index of the log entry
                 let deleteFromArrayIndex = deleteFromIndex - persistentState.snapshot.lastIncludedIndex - 1 // The index in the log array
 
-                logger.info("Truncating log from absolute index \(deleteFromIndex) (array index \(deleteFromArrayIndex))")
-                persistentState.log.removeSubrange(deleteFromArrayIndex ..< persistentState.log.count)
+                if deleteFromArrayIndex >= 0 {
+                    logger.info("Truncating log from absolute index \(deleteFromIndex) (array index \(deleteFromArrayIndex))")
+                    persistentState.log.removeSubrange(deleteFromArrayIndex ..< persistentState.log.count)
+                } else {
+                    // The conflict is within the snapshot range or immediately after.
+                    // In this case, we should discard the entire log because our log is inconsistent
+                    // with what the leader is sending regarding its snapshot base.
+                    logger.info("Truncating entire log due to conflict detected within or immediately after snapshot range.")
+                    // TODO: should we do this?
+                    // persistentState.log.removeAll(keepingCapacity: true)
+                }
             }
 
             // Append any new entries not already in the log
@@ -733,13 +746,28 @@ public actor RaftNode {
         let oldCommitIndex = volatileState.commitIndex
 
         for newCommitIndex in stride(from: majorityIndex, through: oldCommitIndex + 1, by: -1) {
-            if newCommitIndex > 0, newCommitIndex <= persistentState.logLength {
-                let entry = persistentState.log[newCommitIndex - persistentState.snapshot.lastIncludedIndex - 1]
-                if entry.term == persistentState.currentTerm {
-                    volatileState.commitIndex = newCommitIndex
-                    logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
-                    break
+            // Ensure the newCommitIndex is greater than the snapshot's last included index
+            // and within the bounds of the current log
+            if newCommitIndex > persistentState.snapshot.lastIncludedIndex {
+                let logArrayIndex = newCommitIndex - persistentState.snapshot.lastIncludedIndex - 1
+                if logArrayIndex >= 0, logArrayIndex < persistentState.log.count {
+                    let entry = persistentState.log[logArrayIndex]
+                    if entry.term == persistentState.currentTerm {
+                        volatileState.commitIndex = newCommitIndex
+                        logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
+                        break
+                    }
+                } else {
+                    // This case indicates that newCommitIndex is out of bounds for the current log,
+                    // implying a logic error in majorityIndex calculation or log management.
+                    logger.warning("Calculated newCommitIndex \(newCommitIndex) is out of bounds for log (length: \(persistentState.log.count), snapshot last index: \(persistentState.snapshot.lastIncludedIndex))")
                 }
+            } else if newCommitIndex <= persistentState.snapshot.lastIncludedIndex {
+                // If the majority index falls within or below the snapshot, it means all entries
+                // up to the snapshot are considered committed.
+                volatileState.commitIndex = persistentState.snapshot.lastIncludedIndex
+                logger.trace("Updated commit index from \(oldCommitIndex) to \(volatileState.commitIndex)")
+                break
             }
         }
 
@@ -750,7 +778,23 @@ public actor RaftNode {
     /// Applies the committed entries to the state machine.
     private func applyCommittedEntries() {
         while volatileState.lastApplied < volatileState.commitIndex {
-            let entry = persistentState.log[volatileState.lastApplied - persistentState.snapshot.lastIncludedIndex]
+            let absoluteIndexToApply = volatileState.lastApplied + 1
+
+            // Ensure the entry is not already covered by a snapshot
+            if absoluteIndexToApply <= persistentState.snapshot.lastIncludedIndex {
+                // Entry is part of snapshot, should have already been applied
+                volatileState.lastApplied = persistentState.snapshot.lastIncludedIndex
+                continue
+            }
+
+            let relativeIndexInLog = absoluteIndexToApply - persistentState.snapshot.lastIncludedIndex - 1
+
+            guard relativeIndexInLog >= 0, relativeIndexInLog < persistentState.log.count else {
+                logger.error("Attempted to apply log entry at relative index \(relativeIndexInLog) (absolute: \(absoluteIndexToApply)) but it's out of bounds for current log (count: \(persistentState.log.count)). This indicates a bug.")
+                break
+            }
+
+            let entry = persistentState.log[relativeIndexInLog]
 
             if let key = entry.key {
                 let oldValue = persistentState.stateMachine[key]
@@ -834,7 +878,9 @@ public actor RaftNode {
         persistentState.snapshot = snapshot
 
         // Truncate the log after saving snapshot
-        persistentState.log.removeSubrange(0 ..< snapshotLastIndex)
+        persistentState.log.removeAll(keepingCapacity: true)
+
+        logger.info("Created snapshot up to index \(snapshot.lastIncludedIndex).")
     }
 
     /// Sends a snapshot to a specific peer.

@@ -35,7 +35,9 @@ public actor RaftNode {
     ///   - transport: The transport layer.
     public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport, persistence: any RaftNodePersistence) {
         self.transport = transport
-        logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
+        var newLogger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
+        newLogger.logLevel = .debug
+        logger = newLogger
 
         persistentState = PersistentState(
             ownPeer: ownPeer,
@@ -196,7 +198,7 @@ public actor RaftNode {
             let startAppendIndex = max(0, persistentState.logLength - request.prevLogIndex)
             if startAppendIndex < request.entries.count {
                 let entriesToAppend = request.entries[startAppendIndex...]
-                logger.trace("Appending \(entriesToAppend.count) entries starting from log index \(persistentState.logLength + 1)")
+                logger.debug("Appending \(entriesToAppend.count) entries starting from log index \(persistentState.logLength + 1)")
                 persistentState.log.append(contentsOf: entriesToAppend)
             }
         }
@@ -205,7 +207,7 @@ public actor RaftNode {
         if request.leaderCommit > volatileState.commitIndex {
             let lastLogIndex = persistentState.logLength
             volatileState.commitIndex = min(request.leaderCommit, lastLogIndex)
-            logger.trace("Updating commit index to \(volatileState.commitIndex)")
+            logger.debug("Updating commit index to \(volatileState.commitIndex)")
 
             applyCommittedEntries()
         }
@@ -745,29 +747,32 @@ public actor RaftNode {
         // (Raft safety requirement: only commit entries from current term)
         let oldCommitIndex = volatileState.commitIndex
 
+        // Start from the majority index and work backwards to find the highest
+        // committable index in the current term
         for newCommitIndex in stride(from: majorityIndex, through: oldCommitIndex + 1, by: -1) {
-            // Ensure the newCommitIndex is greater than the snapshot's last included index
-            // and within the bounds of the current log
-            if newCommitIndex > persistentState.snapshot.lastIncludedIndex {
-                let logArrayIndex = newCommitIndex - persistentState.snapshot.lastIncludedIndex - 1
-                if logArrayIndex >= 0, logArrayIndex < persistentState.log.count {
-                    let entry = persistentState.log[logArrayIndex]
-                    if entry.term == persistentState.currentTerm {
-                        volatileState.commitIndex = newCommitIndex
-                        logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
-                        break
-                    }
-                } else {
-                    // This case indicates that newCommitIndex is out of bounds for the current log,
-                    // implying a logic error in majorityIndex calculation or log management.
-                    logger.warning("Calculated newCommitIndex \(newCommitIndex) is out of bounds for log (length: \(persistentState.log.count), snapshot last index: \(persistentState.snapshot.lastIncludedIndex))")
-                }
-            } else if newCommitIndex <= persistentState.snapshot.lastIncludedIndex {
-                // If the majority index falls within or below the snapshot, it means all entries
-                // up to the snapshot are considered committed.
-                volatileState.commitIndex = persistentState.snapshot.lastIncludedIndex
-                logger.trace("Updated commit index from \(oldCommitIndex) to \(volatileState.commitIndex)")
+            // Check if this index is within the snapshot range
+            if newCommitIndex <= persistentState.snapshot.lastIncludedIndex {
+                // This index is covered by the snapshot, so it's already committed
+                // Don't update commitIndex as it should already be at least this value
                 break
+            }
+
+            // Calculate the array index in the current log
+            let logArrayIndex = newCommitIndex - persistentState.snapshot.lastIncludedIndex - 1
+
+            // Ensure the index is within bounds of the current log
+            if logArrayIndex >= 0, logArrayIndex < persistentState.log.count {
+                let entry = persistentState.log[logArrayIndex]
+                // Only commit entries from the current term for safety
+                if entry.term == persistentState.currentTerm {
+                    volatileState.commitIndex = newCommitIndex
+                    logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
+                    break
+                }
+                // If the entry is from an older term, continue checking lower indices
+            } else {
+                // Index is out of bounds - this shouldn't happen with correct logic
+                logger.warning("Calculated newCommitIndex \(newCommitIndex) is out of bounds for log (length: \(persistentState.log.count), snapshot last index: \(persistentState.snapshot.lastIncludedIndex))")
             }
         }
 
@@ -778,23 +783,21 @@ public actor RaftNode {
     /// Applies the committed entries to the state machine.
     private func applyCommittedEntries() {
         while volatileState.lastApplied < volatileState.commitIndex {
-            let absoluteIndexToApply = volatileState.lastApplied + 1
+            let nextApplyIndex = volatileState.lastApplied + 1
 
-            // Ensure the entry is not already covered by a snapshot
-            if absoluteIndexToApply <= persistentState.snapshot.lastIncludedIndex {
-                // Entry is part of snapshot, should have already been applied
-                volatileState.lastApplied = persistentState.snapshot.lastIncludedIndex
+            if nextApplyIndex <= persistentState.snapshot.lastIncludedIndex {
+                volatileState.lastApplied = nextApplyIndex
                 continue
             }
 
-            let relativeIndexInLog = absoluteIndexToApply - persistentState.snapshot.lastIncludedIndex - 1
+            let logArrayIndex = nextApplyIndex - persistentState.snapshot.lastIncludedIndex - 1
 
-            guard relativeIndexInLog >= 0, relativeIndexInLog < persistentState.log.count else {
-                logger.error("Attempted to apply log entry at relative index \(relativeIndexInLog) (absolute: \(absoluteIndexToApply)) but it's out of bounds for current log (count: \(persistentState.log.count)). This indicates a bug.")
+            guard logArrayIndex >= 0, logArrayIndex < persistentState.log.count else {
+                logger.warning("Cannot apply entry at index \(nextApplyIndex): log array index \(logArrayIndex) is out of bounds (log count: \(persistentState.log.count), snapshot last index: \(persistentState.snapshot.lastIncludedIndex))")
                 break
             }
 
-            let entry = persistentState.log[relativeIndexInLog]
+            let entry = persistentState.log[logArrayIndex]
 
             if let key = entry.key {
                 let oldValue = persistentState.stateMachine[key]
@@ -879,7 +882,8 @@ public actor RaftNode {
         persistentState.snapshot = snapshot
 
         // Truncate the log after saving snapshot
-        persistentState.log.removeSubrange(0 ..< lastCommittedArrayIndex)
+        let entriesToKeep = lastCommittedArrayIndex + 1
+        persistentState.log.removeSubrange(0 ..< entriesToKeep)
 
         logger.info("Created snapshot up to index \(snapshot.lastIncludedIndex).")
     }

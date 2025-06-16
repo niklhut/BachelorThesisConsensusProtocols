@@ -245,9 +245,8 @@ public actor RaftNode {
         // Otherwise, we need to truncate the entire log.
         if oldSnapshot.lastIncludedIndex < snapshotLastIndex {
             let logIndex = oldSnapshot.lastIncludedIndex + persistentState.log.count - snapshotLastIndex
-            let logTerm = persistentState.log[logIndex - 1].term
 
-            if logTerm == snapshotLastTerm {
+            if logIndex >= 0, persistentState.log[logIndex].term == snapshotLastTerm {
                 logger.info("Kept \(logIndex) log entries after installing snapshot")
                 persistentState.log.removeSubrange(0 ..< logIndex)
             } else {

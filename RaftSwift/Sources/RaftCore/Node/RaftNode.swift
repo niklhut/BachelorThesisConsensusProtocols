@@ -120,20 +120,29 @@ public actor RaftNode {
 
         // Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm
         if request.prevLogIndex > 0 {
-            if persistentState.log.count < request.prevLogIndex {
-                logger.info("Log is too short (length: \(persistentState.log.count), needed: \(request.prevLogIndex))")
-
-                return AppendEntriesResponse(
-                    term: persistentState.currentTerm,
-                    success: false,
-                )
-            }
-
-            let prevLogTerm = persistentState.log[request.prevLogIndex - 1].term
-            if prevLogTerm != request.prevLogTerm {
-                // Term mismatch at the expected previous index
-                logger.info("Term mismatch at prevLogIndex \(request.prevLogIndex): expected \(request.prevLogTerm), got \(prevLogTerm)")
-
+            if request.prevLogIndex > persistentState.snapshot.lastIncludedIndex {
+                // If prevLogIndex is beyond the snapshot, it must be in the current log
+                let logIndex = request.prevLogIndex - persistentState.snapshot.lastIncludedIndex - 1
+                if persistentState.log.count <= logIndex || persistentState.log[logIndex].term != request.prevLogTerm {
+                    logger.info("Log inconsistency: prevLogIndex \(request.prevLogIndex) not found or term mismatch (log length: \(persistentState.log.count), target index: \(logIndex))")
+                    return AppendEntriesResponse(
+                        term: persistentState.currentTerm,
+                        success: false,
+                    )
+                }
+            } else if request.prevLogIndex == persistentState.snapshot.lastIncludedIndex {
+                // If prevLogIndex is the last index of the snapshot
+                if persistentState.snapshot.lastIncludedTerm != request.prevLogTerm {
+                    logger.info("Snapshot inconsistency: prevLogIndex matches snapshot last included index, but terms differ.")
+                    return AppendEntriesResponse(
+                        term: persistentState.currentTerm,
+                        success: false,
+                    )
+                }
+            } else {
+                // prevLogIndex is before the snapshot, which is an inconsistency.
+                // This implies the leader is trying to send entries that predate our snapshot.
+                logger.info("Log inconsistency: prevLogIndex \(request.prevLogIndex) is before snapshot last included index \(persistentState.snapshot.lastIncludedIndex)")
                 return AppendEntriesResponse(
                     term: persistentState.currentTerm,
                     success: false,
@@ -147,10 +156,10 @@ public actor RaftNode {
             var conflictIndex: Int? = nil
 
             for (i, newEntry) in request.entries.enumerated() {
-                let logIndex = request.prevLogIndex + i + 1
-                let arrayIndex = logIndex - 1
+                let logIndex = request.prevLogIndex + i + 1 // This is the absolute log index
+                let arrayIndex = logIndex - persistentState.snapshot.lastIncludedIndex - 1 // This is the index in our current log array
 
-                if arrayIndex < persistentState.log.count {
+                if arrayIndex >= 0, arrayIndex < persistentState.log.count {
                     // This is an existing entry in our log - check for conflict
                     let existingEntry = persistentState.log[arrayIndex]
                     if existingEntry.term != newEntry.term {
@@ -159,8 +168,13 @@ public actor RaftNode {
                         conflictIndex = i
                         break
                     }
-
-                    // Entry matches, will be replicated correctly
+                } else if arrayIndex < 0 {
+                    // The new entry's log index is covered by the snapshot, which means a conflict.
+                    // This can happen if the leader's snapshot is older than ours,
+                    // or if it's trying to send entries that are already in our snapshot.
+                    logger.info("New entry at index \(logIndex) is already covered by snapshot.")
+                    conflictIndex = i // Treat as a conflict to truncate at this point if needed
+                    break
                 } else {
                     // We've reached the end of our log - remaining entries are new
                     break
@@ -169,25 +183,48 @@ public actor RaftNode {
 
             if let conflictIndex {
                 // Remove conflicting entry and everything that follows
-                let deleteFromIndex = request.prevLogIndex + conflictIndex + 1
-                let deleteFromArrayIndex = deleteFromIndex - 1
+                let deleteFromAbsoluteIndex = request.prevLogIndex + conflictIndex + 1
+                let deleteFromArrayIndex = deleteFromAbsoluteIndex - persistentState.snapshot.lastIncludedIndex - 1
 
-                logger.info("Truncating log from index \(deleteFromIndex)")
-                persistentState.log.removeSubrange(deleteFromArrayIndex ..< persistentState.log.count)
+                if deleteFromArrayIndex >= 0 {
+                    logger.info("Truncating log from absolute index \(deleteFromAbsoluteIndex) (array index: \(deleteFromArrayIndex))")
+                    persistentState.log.removeSubrange(deleteFromArrayIndex ..< persistentState.log.count)
+                } else {
+                    // This means the conflict is within the snapshot range or immediately after.
+                    // In this case, we should discard the entire log because our log is inconsistent
+                    // with what the leader is sending regarding its snapshot base.
+                    logger.info("Truncating entire log due to conflict detected within or immediately after snapshot range.")
+                    persistentState.log = []
+                }
             }
 
             // Append any new entries not already in the log
-            let startAppendIndex = max(0, persistentState.log.count - request.prevLogIndex)
-            if startAppendIndex < request.entries.count {
-                let entriesToAppend = request.entries[startAppendIndex...]
-                logger.trace("Appending \(entriesToAppend.count) entries starting from log index \(persistentState.log.count + 1)")
+            let startAppendAbsoluteIndex = request.prevLogIndex + 1
+            let startAppendArrayIndex = startAppendAbsoluteIndex - persistentState.snapshot.lastIncludedIndex - 1
+
+            if startAppendArrayIndex <= request.entries.count {
+                let entriesToAppend: [LogEntry] = if startAppendArrayIndex < 0 {
+                    // This implies some entries in request.entries are covered by our snapshot.
+                    // We only append entries that are truly new to our current log.
+                    Array(request.entries[max(0, -startAppendArrayIndex)...])
+                } else {
+                    Array(request.entries[startAppendArrayIndex...])
+                }
+
+                logger.info("Appending \(entriesToAppend.count) entries starting from log absolute index \(persistentState.log.count + persistentState.snapshot.lastIncludedIndex + 1)")
                 persistentState.log.append(contentsOf: entriesToAppend)
+            } else {
+                logger.error("Tried to append entries but request.entries.count is \(request.entries.count) and startAppendArrayIndex is \(startAppendArrayIndex)")
+                return AppendEntriesResponse(
+                    term: persistentState.currentTerm,
+                    success: false,
+                )
             }
         }
 
         // Update commit index
         if request.leaderCommit > volatileState.commitIndex {
-            let lastLogIndex = persistentState.log.count
+            let lastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
             volatileState.commitIndex = min(request.leaderCommit, lastLogIndex)
             logger.trace("Updating commit index to \(volatileState.commitIndex)")
 
@@ -222,16 +259,20 @@ public actor RaftNode {
         let snapshotLastIndex = request.snapshot.lastIncludedIndex
         let snapshotLastTerm = request.snapshot.lastIncludedTerm
 
-        if persistentState.log.count >= snapshotLastIndex {
-            let logIndex = snapshotLastIndex - 1
-            if logIndex >= 0, persistentState.log[logIndex].term == snapshotLastTerm {
-                // Keep log entries after the snapshot
-                persistentState.log.removeSubrange(0 ..< snapshotLastIndex)
-                logger.info("Kept \(persistentState.log.count) log entries after installing snapshot")
+        // Adjust the log based on the new snapshot
+        // If an existing log entry has the same index and term as the snapshot's
+        // last included entry, we can keep the log entries that follow it.
+        // Otherwise, discard the entire log.
+        if persistentState.log.count + persistentState.snapshot.lastIncludedIndex >= snapshotLastIndex {
+            let relativeIndex = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
+            if relativeIndex >= 0, persistentState.log[relativeIndex].term == snapshotLastTerm {
+                // Keep log entries after the snapshot's last included entry
+                persistentState.log.removeSubrange(0 ..< relativeIndex + 1)
+                logger.info("Kept \(persistentState.log.count) log entries after installing snapshot (relative index: \(relativeIndex))")
             } else {
-                // Discard entire log - conflict detected
+                // Discard entire log - conflict detected or snapshot covers existing log
                 persistentState.log = []
-                logger.info("Discarded entire log due to conflict with snapshot")
+                logger.info("Discarded entire log due to conflict with snapshot or snapshot covers existing log")
             }
         } else {
             // Log is shorter than snapshot - discard entire log
@@ -242,7 +283,7 @@ public actor RaftNode {
         // Reset state machine using snapshot
         persistentState.stateMachine = request.snapshot.stateMachine
 
-        // Update commit and last applied indices
+        // Update commit and last applied indices to reflect the snapshot's state
         volatileState.commitIndex = max(volatileState.commitIndex, snapshotLastIndex)
         volatileState.lastApplied = max(volatileState.lastApplied, snapshotLastIndex)
 
@@ -325,6 +366,9 @@ public actor RaftNode {
     /// Starts the node.
     public func start() async {
         await loadSnapshotOnStartup()
+        // Ensure commitIndex and lastApplied are correctly set after loading snapshot
+        volatileState.commitIndex = max(volatileState.commitIndex, persistentState.snapshot.lastIncludedIndex)
+        volatileState.lastApplied = max(volatileState.lastApplied, persistentState.snapshot.lastIncludedIndex)
         startHeartbeatTask()
     }
 
@@ -424,6 +468,8 @@ public actor RaftNode {
 
         let currentTerm = persistentState.currentTerm
         let candidateID = persistentState.ownPeer.id
+        // The last log index for vote request should be the absolute last index,
+        // which includes entries in the snapshot.
         let lastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
         let lastLogTerm = persistentState.log.last?.term ?? persistentState.snapshot.lastIncludedTerm
         let peers = persistentState.peers
@@ -582,7 +628,7 @@ public actor RaftNode {
     ) async throws {
         var retryCount = 0
 
-        let targetEndIndex = originalLogLength + entries.count
+        let targetEndIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex // Absolute index of the last entry in the leader's log
 
         // Continue trying until successful or no longer leader
         while !Task.isCancelled, volatileState.state == .leader, persistentState.currentTerm == currentTerm, persistentState.peers.contains(peer) {
@@ -597,16 +643,23 @@ public actor RaftNode {
                 return
             }
 
-            // Check if peer needs a snapshot
-            let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + 1
-            let firstLogIndex = persistentState.snapshot.lastIncludedIndex + 1
+            // Determine peer's nextIndex, ensuring it's at least the last included index + 1
+            let peerNextIndex = leaderState.nextIndex[peer.id] ?? persistentState.log.count + persistentState.snapshot.lastIncludedIndex + 1
+            // let peerNextIndex = max(persistentState.snapshot.lastIncludedIndex + 1, leaderState.nextIndex[peer.id] ?? (persistentState.log.count + persistentState.snapshot.lastIncludedIndex + 1))
 
-            if peerNextIndex < firstLogIndex {
-                // Peer is too far behind, send snapshot
-                logger.info("Peer \(peer.id) is too far behind (nextIndex: \(peerNextIndex), firstLogIndex: \(firstLogIndex)), sending snapshot")
+            // Check if peer needs a snapshot
+            if peerNextIndex <= persistentState.snapshot.lastIncludedIndex {
+                // Peer is too far behind or its nextIndex suggests it's before our snapshot.
+                // We should send the snapshot.
+                logger.info("Peer \(peer.id) is too far behind (nextIndex: \(peerNextIndex)), sending snapshot. Snapshot last included index: \(persistentState.snapshot.lastIncludedIndex)")
                 try await sendSnapshotToPeer(peer)
-                // After snapshot, replication will continue in next iteration
-                continue
+
+                // After sending snapshot, update nextIndex and matchIndex for this peer
+                // to reflect the snapshot's last included index.
+                leaderState.matchIndex[peer.id] = persistentState.snapshot.lastIncludedIndex
+                leaderState.nextIndex[peer.id] = persistentState.snapshot.lastIncludedIndex + 1
+
+                continue // Continue to next iteration to try sending append entries from the new nextIndex
             }
 
             do {
@@ -616,35 +669,42 @@ public actor RaftNode {
                 if peerPrevLogIndex == 0 {
                     peerPrevLogTerm = 0
                 } else if peerPrevLogIndex == persistentState.snapshot.lastIncludedIndex {
+                    // prevLogIndex is exactly the last entry of the snapshot
                     peerPrevLogTerm = persistentState.snapshot.lastIncludedTerm
-                } else if peerPrevLogIndex > firstLogIndex - 1 {
-                    let logArrayIndex = peerPrevLogIndex - firstLogIndex
-                    peerPrevLogTerm = persistentState.log[logArrayIndex].term
+                } else if peerPrevLogIndex > persistentState.snapshot.lastIncludedIndex {
+                    // prevLogIndex is after the snapshot, so it's in the current log
+                    let logArrayIndex = peerPrevLogIndex - persistentState.snapshot.lastIncludedIndex - 1
+                    if logArrayIndex >= 0, logArrayIndex < persistentState.log.count {
+                        peerPrevLogTerm = persistentState.log[logArrayIndex].term
+                    } else {
+                        // This indicates an inconsistency. The leader thinks the follower needs
+                        // an entry at prevLogIndex, but the leader doesn't have it in its current log
+                        // (after accounting for the snapshot). This could happen if the leader's log
+                        // was truncated due to a snapshot, but its nextIndex for this peer was not
+                        // correctly adjusted.
+                        logger.error("Leader's log is too short for peer's nextIndex calculation. Resetting nextIndex for \(peer.id).")
+                        leaderState.nextIndex[peer.id] = persistentState.snapshot.lastIncludedIndex + 1
+                        continue
+                    }
                 } else {
-                    // This shouldn't happen after snapshot check above
-                    logger.error("Invalid prevLogIndex \(peerPrevLogIndex) for peer \(peer.id)")
-                    leaderState.nextIndex[peer.id] = firstLogIndex
+                    // This case should ideally be handled by the snapshot check above,
+                    // but as a fallback, if peerPrevLogIndex is somehow less than lastIncludedIndex,
+                    // it means the leader is trying to send entries that are covered by the snapshot.
+                    // This indicates an inconsistency or a logic error in `nextIndex` management.
+                    logger.error("Invalid prevLogIndex \(peerPrevLogIndex) for peer \(peer.id) relative to snapshot. Resetting nextIndex.")
+                    leaderState.nextIndex[peer.id] = persistentState.snapshot.lastIncludedIndex + 1
                     continue
                 }
 
                 // Calculate entries to send
                 let entriesToSend: [LogEntry]
-                if peerNextIndex <= originalLogLength {
-                    // Peer needs entries from the original log (catch-up scenario)
-                    let startArrayIndex = peerNextIndex - firstLogIndex
-                    if startArrayIndex >= 0, startArrayIndex < persistentState.log.count {
-                        entriesToSend = Array(persistentState.log[startArrayIndex...])
-                    } else {
-                        entriesToSend = []
-                    }
-                } else if peerNextIndex == originalLogLength + 1 {
-                    // Peer is up-to-date with original log, send only new entries
-                    entriesToSend = entries
+                let startAbsoluteIndexForEntries = peerNextIndex
+                let startRelativeIndexInLog = startAbsoluteIndexForEntries - persistentState.snapshot.lastIncludedIndex - 1
+
+                if startRelativeIndexInLog < persistentState.log.count {
+                    entriesToSend = Array(persistentState.log[max(0, startRelativeIndexInLog)...])
                 } else {
-                    // Peer's nextIndex is beyond what we expect - this shouldn't happen
-                    // Reset nextIndex and retry
-                    leaderState.nextIndex[peer.id] = originalLogLength + 1
-                    continue
+                    entriesToSend = [] // No new entries to send beyond what's already in the log
                 }
 
                 logger.trace("Sending append entries to \(peer.id) with nextIndex: \(peerNextIndex), prevLogIndex: \(peerPrevLogIndex), prevLogTerm: \(peerPrevLogTerm), entries.count: \(entriesToSend.count)")
@@ -685,6 +745,7 @@ public actor RaftNode {
                     return
                 } else {
                     // Log inconsistency, decrement nextIndex and retry
+                    // leaderState.nextIndex[peer.id] = max(persistentState.snapshot.lastIncludedIndex + 1, (leaderState.nextIndex[peer.id] ?? 1) - 1)
                     leaderState.nextIndex[peer.id] = max(1, (leaderState.nextIndex[peer.id] ?? 1) - 1)
                     retryCount += 1
                     logger.info("Append entries failed for \(peer.id), retrying with earlier index, retrying with index \(leaderState.nextIndex[peer.id] ?? 0)", metadata: [
@@ -724,24 +785,46 @@ public actor RaftNode {
 
         // Add own match index (implicitly the end of the log)
         var allMatchIndices = leaderState.matchIndex
-        allMatchIndices[persistentState.ownPeer.id] = persistentState.log.count
+        // The leader's own "match index" is its current absolute log length
+        allMatchIndices[persistentState.ownPeer.id] = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
 
         // Calculate new commit index based on majority match indices
         let sortedIndices = Array(allMatchIndices.values).sorted(by: >)
+        // Ensure there are enough indices to calculate a majority
+        guard majority - 1 < sortedIndices.count else {
+            logger.warning("Not enough match indices to determine majority for commit. Current indices: \(sortedIndices.count), majority needed: \(majority)")
+            return
+        }
         let majorityIndex = sortedIndices[majority - 1]
 
         // Only update commit index if it's in the current term
         // (Raft safety requirement: only commit entries from current term)
         let oldCommitIndex = volatileState.commitIndex
 
+        // Iterate backwards from the new potential commit index down to old commit index + 1
         for newCommitIndex in stride(from: majorityIndex, through: oldCommitIndex + 1, by: -1) {
-            if newCommitIndex > 0, newCommitIndex <= persistentState.log.count {
-                let entry = persistentState.log[newCommitIndex - 1]
-                if entry.term == persistentState.currentTerm {
-                    volatileState.commitIndex = newCommitIndex
-                    logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
-                    break
+            // Ensure the newCommitIndex is greater than the snapshot's last included index
+            // and within the bounds of the current log
+            if newCommitIndex > persistentState.snapshot.lastIncludedIndex {
+                let logArrayIndex = newCommitIndex - persistentState.snapshot.lastIncludedIndex - 1
+                if logArrayIndex >= 0, logArrayIndex < persistentState.log.count {
+                    let entry = persistentState.log[logArrayIndex]
+                    if entry.term == persistentState.currentTerm {
+                        volatileState.commitIndex = newCommitIndex
+                        logger.trace("Updated commit index from \(oldCommitIndex) to \(newCommitIndex)")
+                        break
+                    }
+                } else {
+                    // This case indicates that newCommitIndex is out of bounds for the current log,
+                    // implying a logic error in majorityIndex calculation or log management.
+                    logger.warning("Calculated newCommitIndex \(newCommitIndex) is out of bounds for log (length: \(persistentState.log.count), snapshot last index: \(persistentState.snapshot.lastIncludedIndex))")
                 }
+            } else if newCommitIndex <= persistentState.snapshot.lastIncludedIndex {
+                // If the majority index falls within or below the snapshot, it means all entries
+                // up to the snapshot are considered committed.
+                volatileState.commitIndex = max(volatileState.commitIndex, persistentState.snapshot.lastIncludedIndex)
+                logger.trace("Updated commit index to snapshot's last included index \(persistentState.snapshot.lastIncludedIndex) based on majority")
+                break
             }
         }
 
@@ -752,12 +835,32 @@ public actor RaftNode {
     /// Applies the committed entries to the state machine.
     private func applyCommittedEntries() {
         while volatileState.lastApplied < volatileState.commitIndex {
-            let entry = persistentState.log[volatileState.lastApplied]
+            // Calculate the absolute index of the entry to apply
+            let absoluteIndexToApply = volatileState.lastApplied + 1
+
+            // Ensure the entry is not already covered by the snapshot
+            if absoluteIndexToApply <= persistentState.snapshot.lastIncludedIndex {
+                // This entry is part of the snapshot and should have been applied when the snapshot was installed.
+                // We just increment lastApplied and continue.
+                logger.trace("Skipping applying entry at absolute index \(absoluteIndexToApply) as it's part of the snapshot.")
+                volatileState.lastApplied += 1
+                continue
+            }
+
+            // Calculate the relative index in the current log array
+            let relativeIndexInLog = absoluteIndexToApply - persistentState.snapshot.lastIncludedIndex - 1
+
+            guard relativeIndexInLog >= 0, relativeIndexInLog < persistentState.log.count else {
+                logger.error("Attempted to apply log entry at relative index \(relativeIndexInLog) (absolute: \(absoluteIndexToApply)) but it's out of bounds for current log (count: \(persistentState.log.count)). This indicates a bug.")
+                break // Stop applying to prevent crashes
+            }
+
+            let entry = persistentState.log[relativeIndexInLog]
 
             if let key = entry.key {
                 let oldValue = persistentState.stateMachine[key]
                 persistentState.stateMachine[key] = entry.value
-                logger.trace("Applied entry at index \(volatileState.lastApplied + 1): \(key) = \(entry.value ?? "nil") (was: \(oldValue ?? "nil"))")
+                logger.trace("Applied entry at absolute index \(absoluteIndexToApply): \(key) = \(entry.value ?? "nil") (was: \(oldValue ?? "nil"))")
             }
 
             volatileState.lastApplied += 1
@@ -777,161 +880,179 @@ public actor RaftNode {
 
     /// Checks if the log is at least as up to date as the given log.
     ///
-    /// - Parameters:
-    ///   - lastLogIndex: The index of other node's last log entry.
-    ///   - lastLogTerm: The term of other node's last log entry.
+    /// - Parameter lastLogIndex: The last log index of the other node.
+    /// - Parameter lastLogTerm: The last log term of the other node.
+    /// - Returns: True if the log is at least as up to date, false otherwise.
     private func isLogAtLeastAsUpToDate(lastLogIndex: Int, lastLogTerm: Int) -> Bool {
-        let localLastLogTerm = persistentState.log.last?.term ?? persistentState.snapshot.lastIncludedTerm
+        // Calculate the absolute last log index and term for this node
+        let myLastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
+        let myLastLogTerm = persistentState.log.last?.term ?? persistentState.snapshot.lastIncludedTerm
 
-        if lastLogTerm != localLastLogTerm {
-            return lastLogTerm > localLastLogTerm
+        if lastLogTerm > myLastLogTerm {
+            return true
         }
-
-        let localLastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
-        return lastLogIndex >= localLastLogIndex
+        if lastLogTerm < myLastLogTerm {
+            return false
+        }
+        // Terms are the same, compare by index
+        return lastLogIndex >= myLastLogIndex
     }
 
-    // MARK: - Snapshots
+    // MARK: - Snapshotting
 
-    /// Loads snapshot from disk during startup (add this to your init or start method)
+    /// Loads the snapshot on startup.
     private func loadSnapshotOnStartup() async {
         do {
             if let snapshot = try await persistence.loadSnapshot(for: persistentState.ownPeer.id) {
                 persistentState.snapshot = snapshot
                 persistentState.currentTerm = snapshot.lastIncludedTerm
                 persistentState.stateMachine = snapshot.stateMachine
-                volatileState.commitIndex = snapshot.lastIncludedIndex
-                volatileState.lastApplied = snapshot.lastIncludedIndex
-
-                logger.info("Loaded snapshot from disk up to index \(snapshot.lastIncludedIndex)")
+                logger.info("Successfully loaded snapshot up to index \(snapshot.lastIncludedIndex) from disk.")
             }
         } catch {
-            logger.warning("Failed to load snapshot from disk: \(error)")
+            logger.error("Failed to load snapshot on startup: \(error)")
         }
     }
 
-    /// Checks if a snapshot should be created based on log size
+    /// Checks if a snapshot should be created.
     private func shouldCreateSnapshot() -> Bool {
-        let logSize = persistentState.log.count
-        let threshold = persistence.compactionThreshold
-
-        // return logSize >= threshold
-        let result = logSize >= threshold
-        if result {
-            print("shouldCreateSnapshot: \(result), logSize: \(logSize), threshold: \(threshold)")
+        guard persistence.compactionThreshold > 0 else {
+            return false
         }
-        return result
+        let entriesSinceLastSnapshot = volatileState.lastApplied - persistentState.snapshot.lastIncludedIndex
+        return entriesSinceLastSnapshot >= persistence.compactionThreshold && !isSnapshotting
     }
 
-    /// Creates a snapshot of the current state
+    /// Creates a new snapshot.
     private func createSnapshot() async throws {
-        if isSnapshotting {
+        guard !isSnapshotting else {
+            logger.debug("Snapshotting already in progress, skipping new snapshot creation.")
             return
         }
+
         isSnapshotting = true
-        defer {
-            isSnapshotting = false
-        }
+        defer { isSnapshotting = false }
 
-        let logSize = persistentState.log.count
-        let lastIncludedIndex = volatileState.lastApplied
-        guard lastIncludedIndex > 0 else {
-            logger.trace("No entries to snapshot yet")
-            return
-        }
-
-        let lastIncludedTerm = if lastIncludedIndex <= persistentState.log.count {
-            persistentState.log[lastIncludedIndex - 1].term
+        let snapshotLastIndex = volatileState.lastApplied
+        // Ensure lastIncludedTerm is correct based on the actual log entry at that index
+        let snapshotLastTerm: Int
+        if snapshotLastIndex == 0 {
+            snapshotLastTerm = 0 // Or some initial term for an empty log
+        } else if snapshotLastIndex == persistentState.snapshot.lastIncludedIndex {
+            // The snapshot is being taken at the same point as the previous one (no new entries applied beyond it)
+            snapshotLastTerm = persistentState.snapshot.lastIncludedTerm
         } else {
-            // Entry is in existing snapshot
-            persistentState.snapshot.lastIncludedTerm
+            let relativeIndex = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
+            if relativeIndex >= 0, relativeIndex < persistentState.log.count {
+                snapshotLastTerm = persistentState.log[relativeIndex].term
+            } else {
+                logger.error("Failed to determine term for snapshot at index \(snapshotLastIndex). Log state: \(persistentState.log.count), snapshot last included: \(persistentState.snapshot.lastIncludedIndex)")
+                // Fallback, this indicates a potential issue in log or lastApplied management
+                throw RaftError.snapshotCreationError("Could not determine term for snapshot last index.")
+            }
         }
 
-        let snapshot = Snapshot(
-            lastIncludedIndex: lastIncludedIndex,
-            lastIncludedTerm: lastIncludedTerm,
+        let newSnapshot = Snapshot(
+            lastIncludedIndex: snapshotLastIndex,
+            lastIncludedTerm: snapshotLastTerm,
             stateMachine: persistentState.stateMachine,
         )
 
-        // Save snapshot
-        try await persistence.saveSnapshot(snapshot, for: persistentState.ownPeer.id)
-        persistentState.snapshot = snapshot
+        try await persistence.saveSnapshot(newSnapshot, for: persistentState.ownPeer.id)
+        persistentState.snapshot = newSnapshot
 
-        print("persistentState.log.count: \(persistentState.log.count), lastIncludedIndex: \(lastIncludedIndex)")
-        persistentState.log.removeSubrange(0 ..< logSize)
-        logger.info("Created snapshot up to index \(lastIncludedIndex), trimmed \(logSize) log entries")
+        // After snapshot is saved, truncate the log
+        if snapshotLastIndex > persistentState.snapshot.lastIncludedIndex {
+            let entriesToRemove = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex
+            if entriesToRemove > 0, entriesToRemove <= persistentState.log.count {
+                persistentState.log.removeSubrange(0 ..< entriesToRemove)
+                logger.info("Truncated log after snapshot, removed \(entriesToRemove) entries. New log length: \(persistentState.log.count)")
+            } else {
+                logger.warning("Attempted to truncate \(entriesToRemove) entries but log has \(persistentState.log.count) entries. No truncation performed.")
+            }
+        }
     }
 
-    /// Sends a snapshot to a peer that is too far behind
+    /// Sends a snapshot to a specific peer.
+    ///
+    /// - Parameter peer: The peer to send the snapshot to.
     private func sendSnapshotToPeer(_ peer: Peer) async throws {
-        logger.info("Sending snapshot to \(peer.id) up to index \(persistentState.snapshot.lastIncludedIndex)")
+        guard volatileState.state == .leader else { return } // Only leader sends snapshots
+
+        let currentTerm = persistentState.currentTerm
+        let leaderID = persistentState.ownPeer.id
+
+        let snapshot = persistentState.snapshot
+
+        logger.info("Sending InstallSnapshot RPC to \(peer.id) (snapshot last index: \(snapshot.lastIncludedIndex))")
 
         let request = InstallSnapshotRequest(
-            term: persistentState.currentTerm,
-            leaderID: persistentState.ownPeer.id,
-            snapshot: persistentState.snapshot,
+            term: currentTerm,
+            leaderID: leaderID,
+            snapshot: snapshot,
         )
 
         do {
             let response = try await transport.installSnapshot(request, on: peer, isolation: #isolation)
 
             if response.term > persistentState.currentTerm {
-                logger.info("Received higher term \(response.term), becoming follower")
+                logger.info("Received higher term \(response.term) during InstallSnapshot, becoming follower of \(peer.id)")
                 becomeFollower(newTerm: response.term, currentLeaderId: peer.id)
                 return
             }
 
-            // Update peer's indices after successful snapshot installation
-            leaderState.nextIndex[peer.id] = request.snapshot.lastIncludedIndex + 1
-            leaderState.matchIndex[peer.id] = request.snapshot.lastIncludedIndex
-
-            logger.info("Successfully sent snapshot to \(peer.id)")
+            // Upon successful installation, update matchIndex and nextIndex for this peer
+            leaderState.matchIndex[peer.id] = snapshot.lastIncludedIndex
+            leaderState.nextIndex[peer.id] = snapshot.lastIncludedIndex + 1
+            logger.info("Successfully sent snapshot to \(peer.id). Updated nextIndex to \(leaderState.nextIndex[peer.id] ?? 0) and matchIndex to \(leaderState.matchIndex[peer.id] ?? 0)")
 
         } catch {
-            logger.error("Failed to send snapshot to \(peer.id): \(error)")
-            throw error
+            logger.error("Failed to send InstallSnapshot to \(peer.id): \(error)")
         }
     }
 
-    // MARK: - State Changes
+    // MARK: - State Transitions
 
-    /// Let the node stop leading.
-    private func stopLeading() {
-        leaderState = .init()
-    }
-
-    /// Let the node become a follower.
+    /// Becomes a follower.
     ///
     /// - Parameters:
     ///   - newTerm: The new term.
-    ///   - currentLeaderId: The ID of the current leader.
-    private func becomeFollower(newTerm: Int, currentLeaderId: Int) {
+    ///   - currentLeaderId: The current leader ID.
+    private func becomeFollower(newTerm: Int, currentLeaderId: Int?) {
+        let oldState = volatileState.state
+        if oldState != .follower {
+            logger.info("Transitioning from \(oldState) to follower for term \(newTerm)")
+        }
+
+        volatileState.state = .follower
         persistentState.currentTerm = newTerm
         persistentState.votedFor = nil
-        volatileState.state = .follower
         volatileState.currentLeaderID = currentLeaderId
-
-        stopLeading()
+        resetElectionTimer()
     }
 
-    /// Let the node become a candidate.
+    /// Becomes a candidate.
     private func becomeCandidate() {
-        persistentState.currentTerm += 1
+        logger.info("Transitioning to candidate for term \(persistentState.currentTerm + 1)")
         volatileState.state = .candidate
+        persistentState.currentTerm += 1
         persistentState.votedFor = persistentState.ownPeer.id
         volatileState.currentLeaderID = nil
-
-        stopLeading()
     }
 
-    /// Let the node become a leader.
+    /// Becomes a leader.
     private func becomeLeader() {
+        logger.info("Transitioning to leader for term \(persistentState.currentTerm)")
         volatileState.state = .leader
         volatileState.currentLeaderID = persistentState.ownPeer.id
 
+        // Initialize nextIndex and matchIndex for all peers
+        let lastLogIndex = persistentState.log.count + persistentState.snapshot.lastIncludedIndex
         for peer in persistentState.peers {
-            leaderState.nextIndex[peer.id] = persistentState.log.count + 1
-            leaderState.matchIndex[peer.id] = 0
+            leaderState.nextIndex[peer.id] = lastLogIndex + 1 // Next log index to send to that server
+            leaderState.matchIndex[peer.id] = 0 // Highest log entry known to be replicated on server
         }
+
+        resetElectionTimer()
     }
 }

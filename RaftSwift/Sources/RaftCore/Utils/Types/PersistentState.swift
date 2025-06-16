@@ -13,7 +13,7 @@ struct PersistentState: Sendable {
     var stateMachine: [String: String] = [:]
 
     /// Latest snapshot of the state machine
-    var snapshot: Snapshot = .init()
+    private(set) var snapshot: Snapshot = .init()
 
     /// The self peer config
     var ownPeer: Peer
@@ -23,4 +23,19 @@ struct PersistentState: Sendable {
 
     /// The configuration of the Raft node
     var config: RaftConfig
+
+    private var isSnapshotting = false
+    var persistence: any RaftNodePersistence
+
+    init(
+        ownPeer: Peer,
+        peers: [Peer],
+        config: RaftConfig,
+        persistence: any RaftNodePersistence,
+    ) {
+        self.ownPeer = ownPeer
+        self.peers = peers
+        self.config = config
+        self.persistence = persistence
+    }
 }

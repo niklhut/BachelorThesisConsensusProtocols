@@ -33,7 +33,7 @@ public actor RaftNode {
     ///   - peers: The list of peers.
     ///   - config: The configuration.
     ///   - transport: The transport layer.
-    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport) {
+    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport, persistence: any RaftNodePersistence) {
         self.transport = transport
         logger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
 
@@ -41,6 +41,7 @@ public actor RaftNode {
             ownPeer: ownPeer,
             peers: peers,
             config: config,
+            persistence: persistence,
         )
         volatileState = VolatileState()
         leaderState = LeaderState()

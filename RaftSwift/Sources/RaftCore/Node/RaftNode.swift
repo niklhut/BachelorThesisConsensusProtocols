@@ -250,12 +250,12 @@ public actor RaftNode {
                 persistentState.log.removeSubrange(0 ..< logIndex)
             } else {
                 logger.info("Discarded entire log due to conflict")
-                persistentState.log.removeAll()
+                persistentState.log.removeAll(keepingCapacity: true)
             }
         } else {
             // Discard entire log since the new snapshot is older
             logger.info("Discarded entire log since new snapshot is older")
-            persistentState.log.removeAll()
+            persistentState.log.removeAll(keepingCapacity: true)
         }
 
         // Reset state machine using the snapshot
@@ -852,7 +852,7 @@ public actor RaftNode {
             return false
         }
 
-        return persistentState.log.count >= persistentState.persistence.compactionThreshold && !persistentState.isSnapshotting
+        return (volatileState.commitIndex - persistentState.snapshot.lastIncludedIndex) >= persistentState.persistence.compactionThreshold && !persistentState.isSnapshotting
     }
 
     /// Creates a snapshot.
@@ -866,8 +866,9 @@ public actor RaftNode {
             persistentState.isSnapshotting = false
         }
 
-        let snapshotLastIndex = persistentState.logLength
-        let snapshotLastTerm = persistentState.log.last?.term ?? persistentState.snapshot.lastIncludedTerm
+        let snapshotLastIndex = volatileState.commitIndex
+        let lastCommittedArrayIndex = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
+        let snapshotLastTerm = persistentState.log[lastCommittedArrayIndex].term
 
         let snapshot = Snapshot(
             lastIncludedIndex: snapshotLastIndex,
@@ -878,7 +879,7 @@ public actor RaftNode {
         persistentState.snapshot = snapshot
 
         // Truncate the log after saving snapshot
-        persistentState.log.removeAll(keepingCapacity: true)
+        persistentState.log.removeSubrange(0 ..< lastCommittedArrayIndex)
 
         logger.info("Created snapshot up to index \(snapshot.lastIncludedIndex).")
     }

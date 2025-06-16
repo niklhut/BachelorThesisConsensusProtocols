@@ -9,3 +9,5 @@ DerivedData/
 
 # Ignore docker compose since it is generated
 docker-compose.yml
+
+raft-snapshots

@@ -7,13 +7,15 @@ import RaftCore
 public final class RaftGRPCServer: RaftNodeApplication {
     public let ownPeer: Peer
     public let peers: [Peer]
+    public let persistence: any RaftNodePersistence
 
     /// The logger
     let logger = Logger(label: "raft.RaftGRPCServer")
 
-    public init(ownPeer: Peer, peers: [Peer]) {
+    public init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence) {
         self.ownPeer = ownPeer
         self.peers = peers
+        self.persistence = persistence
     }
 
     public func serve() async throws {
@@ -23,7 +25,8 @@ public final class RaftGRPCServer: RaftNodeApplication {
             config: RaftConfig(),
             transport: GRPCPeerTransport(clientPool: GRPCClientPool(interceptors: [
                 ServerIDInjectionInterceptor(peerID: ownPeer.id),
-            ]))
+            ])),
+            persistence: persistence,
         )
         let peerService = PeerService(node: node)
         let clientService = ClientService(node: node)
@@ -34,7 +37,7 @@ public final class RaftGRPCServer: RaftNodeApplication {
         let server = GRPCServer(
             transport: .http2NIOPosix(
                 address: .ipv4(host: "0.0.0.0", port: ownPeer.port),
-                transportSecurity: .plaintext
+                transportSecurity: .plaintext,
             ),
             services: [
                 peerService,
@@ -43,7 +46,7 @@ public final class RaftGRPCServer: RaftNodeApplication {
             ],
             interceptors: [
                 partitionInterceptor,
-            ]
+            ],
         )
 
         try await withThrowingTaskGroup(of: Void.self) { group in

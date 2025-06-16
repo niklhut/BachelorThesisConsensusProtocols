@@ -26,4 +26,17 @@ public protocol RaftPeerTransport: Sendable {
         to peer: Peer,
         isolation: isolated (any Actor)
     ) async throws -> RequestVoteResponse
+
+    /// Sends an InstallSnapshot message to the specified peer.
+    /// - Parameters:
+    ///   - request: The InstallSnapshot message to send.
+    ///   - peer: The peer to send the message to.
+    ///   - isolation: The isolation to use for the message.
+    /// - Returns: The response from the peer.
+    /// - Throws: An error if the message could not be sent.
+    func installSnapshot(
+        _ request: InstallSnapshotRequest,
+        on peer: Peer,
+        isolation: isolated (any Actor)
+    ) async throws -> InstallSnapshotResponse
 }

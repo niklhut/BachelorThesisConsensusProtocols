@@ -21,15 +21,35 @@ final class Peer: AsyncParsableCommand {
     @Option(help: "The list of peers in the format 'id:name:port,...'.")
     var peers: [RaftCore.Peer]
 
+    enum Persistence: String, ExpressibleByArgument {
+        case inMemory
+        case file
+    }
+
+    @Option(help: "The persistence layer")
+    var persistence: Persistence = .inMemory
+
+    @Option(help: "The compaction threshold")
+    var compactionThreshold: Int = 1000
+
     @Flag(help: "Use Distributed Actor System for transport")
     var useDistributedActorSystem: Bool = false
 
     func run() async throws {
         let ownPeer = RaftCore.Peer(id: id, address: address, port: port)
+
+        let persistenceLayer: any RaftNodePersistence =
+            switch persistence {
+            case .inMemory:
+                InMemoryRaftNodePersistence(compactionThreshold: compactionThreshold)
+            case .file:
+                try FileRaftNodePersistence(compactionThreshold: compactionThreshold)
+            }
+
         let server: any RaftNodeApplication = if useDistributedActorSystem {
-            RaftDistributedActorServer(ownPeer: ownPeer, peers: peers)
+            RaftDistributedActorServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer)
         } else {
-            RaftGRPCServer(ownPeer: ownPeer, peers: peers)
+            RaftGRPCServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer)
         }
         try await server.serve()
     }

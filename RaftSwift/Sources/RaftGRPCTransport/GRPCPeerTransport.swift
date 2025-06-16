@@ -31,7 +31,7 @@ final class GRPCPeerTransport: RaftPeerTransport {
 
         return AppendEntriesResponse(
             term: Int(response.term),
-            success: response.success
+            success: response.success,
         )
     }
 
@@ -52,7 +52,26 @@ final class GRPCPeerTransport: RaftPeerTransport {
 
         return RequestVoteResponse(
             term: Int(response.term),
-            voteGranted: response.voteGranted
+            voteGranted: response.voteGranted,
+        )
+    }
+
+    func installSnapshot(
+        _ request: InstallSnapshotRequest,
+        on peer: Peer,
+        isolation: isolated any Actor
+    ) async throws -> InstallSnapshotResponse {
+        let client = try await clientPool.client(for: peer)
+        let peerClient = Raft_RaftPeer.Client(wrapping: client)
+
+        let response = try await peerClient.installSnapshot(.with { grpcRequest in
+            grpcRequest.term = UInt64(request.term)
+            grpcRequest.leaderID = UInt32(request.leaderID)
+            grpcRequest.snapshot = request.snapshot.toGRPC()
+        })
+
+        return InstallSnapshotResponse(
+            term: Int(response.term),
         )
     }
 }

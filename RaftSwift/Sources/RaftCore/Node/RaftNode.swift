@@ -35,8 +35,7 @@ public actor RaftNode {
     ///   - transport: The transport layer.
     public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport, persistence: any RaftNodePersistence) {
         self.transport = transport
-        var newLogger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
-        newLogger.logLevel = .debug
+        let newLogger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
         logger = newLogger
 
         persistentState = PersistentState(

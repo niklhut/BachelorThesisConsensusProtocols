@@ -47,3 +47,9 @@ EXPOSE 10001
 
 # Default command, can be overridden by `docker run` arguments
 ENTRYPOINT ["./raft-peer"]
+
+LABEL org.opencontainers.image.title="Raft Go"
+LABEL org.opencontainers.image.description="A Raft Consensus Protocol implementation in Go"
+LABEL org.opencontainers.image.authors="niklhut"
+LABEL org.opencontainers.image.source="https://github.com/niklhut/BachelorThesisConsensusProtocols/tree/main/RaftGo"
+LABEL org.opencontainers.image.licenses="All rights reserved"

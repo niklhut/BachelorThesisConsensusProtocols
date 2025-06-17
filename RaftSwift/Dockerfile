@@ -83,3 +83,10 @@ EXPOSE 8080
 
 # Start the Raft service when the image is run
 ENTRYPOINT ["./Raft"]
+
+LABEL org.opencontainers.image.title="Raft Swift"
+LABEL org.opencontainers.image.description="A Raft Consensus Protocol implementation in Swift"
+LABEL org.opencontainers.image.authors="niklhut"
+LABEL org.opencontainers.image.source="https://github.com/niklhut/BachelorThesisConsensusProtocols/tree/main/RaftSwift"
+LABEL org.opencontainers.image.licenses="All rights reserved"
+

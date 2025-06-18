@@ -27,8 +27,6 @@ public actor FileRaftNodePersistence: RaftNodePersistence {
         let data = try JSONEncoder().encode(snapshot)
 
         try data.write(to: url, options: .atomic)
-
-        print("Saved snapshot to \(url.path)")
     }
 
     public func loadSnapshot(for nodeId: Int) async throws -> Snapshot? {

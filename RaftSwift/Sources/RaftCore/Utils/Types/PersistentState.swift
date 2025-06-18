@@ -24,9 +24,18 @@ struct PersistentState: Sendable {
     /// The configuration of the Raft node
     var config: RaftConfig
 
+    /// Whether the node is currently snapshotting
     var isSnapshotting = false
+
+    /// The persistence of the node
     var persistence: any RaftNodePersistence
 
+    /// Initializes the persistent state
+    /// - Parameters:
+    ///   - ownPeer: The own peer
+    ///   - peers: The list of peers
+    ///   - config: The configuration of the Raft node
+    ///   - persistence: The persistence layer
     init(
         ownPeer: Peer,
         peers: [Peer],
@@ -41,6 +50,9 @@ struct PersistentState: Sendable {
 }
 
 extension PersistentState {
+    /// The length of the log
+    ///
+    /// Returns the last snapshot index plus the number of entries in the log.
     var logLength: Int {
         snapshot.lastIncludedIndex + log.count
     }

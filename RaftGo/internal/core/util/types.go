@@ -32,26 +32,6 @@ type Peer struct {
 	Port int `json:"port"`
 }
 
-// PersistentState represents the durable state persisted to disk across crashes.
-type PersistentState struct {
-	// Latest term server has seen (initialized to 0)
-	CurrentTerm int `json:"currentTerm"`
-	// Candidate ID that received vote in current term (or null)
-	VotedFor *int `json:"votedFor,omitempty"`
-	// Log entries, each containing a command for the state machine
-	Log []LogEntry `json:"log"`
-	// State machine state
-	StateMachine map[string]string `json:"stateMachine"`
-	// Latest snapshot of the state machine
-	Snapshot Snapshot `json:"snapshot"`
-	// The self peer config
-	OwnPeer Peer `json:"ownPeer"`
-	// List of peers in the cluster
-	Peers []Peer `json:"peers"`
-	// The configuration of the Raft node
-	Config RaftConfig `json:"config"`
-}
-
 // RaftConfig represents the configuration for the Raft node.
 type RaftConfig struct {
 	// The range of election timeout in milliseconds

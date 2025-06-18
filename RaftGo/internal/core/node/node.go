@@ -45,7 +45,7 @@ type RaftNode struct {
 	wg              sync.WaitGroup
 
 	// Raft states (protected by mu)
-	persistentState util.PersistentState
+	persistentState PersistentState
 	volatileState   util.VolatileState
 	leaderState     util.LeaderState
 }
@@ -59,9 +59,9 @@ func (rn *RaftNode) Majority() int {
 
 // NewRaftNode creates and initializes a new RaftNode.
 // This is the Go constructor function.
-func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftPeerTransport) *RaftNode {
+func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftPeerTransport, persistence RaftNodePersistence) *RaftNode {
 	// Initialize persistent state with the provided config
-	persistentState := util.PersistentState{
+	persistentState := PersistentState{
 		OwnPeer:      ownPeer,
 		Peers:        peers,
 		Config:       config,
@@ -70,6 +70,7 @@ func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, t
 		StateMachine: make(map[string]string),
 		Snapshot:     util.Snapshot{},
 		VotedFor:     nil,
+		Persistence:  persistence,
 	}
 
 	// Initialize volatile state with default values

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/niklhut/raft_go/internal/core/node"
 	"github.com/niklhut/raft_go/internal/core/util"
 	"github.com/niklhut/raft_go/internal/transport/grpc"
 
@@ -23,6 +24,17 @@ func main() {
 			addr, _ := cmd.Flags().GetString("address")
 			port, _ := cmd.Flags().GetInt("port")
 			rawPeers, _ := cmd.Flags().GetString("peers")
+			persistenceType, _ := cmd.Flags().GetString("persistence")
+			compactionThreshold, _ := cmd.Flags().GetInt("compactionThreshold")
+			var persistence node.RaftNodePersistence
+			switch persistenceType {
+			case "file":
+				persistence, _ = node.NewFileRaftNodePersistence(compactionThreshold)
+			case "inMemory":
+				persistence = node.NewInMemoryRaftNodePersistence(compactionThreshold)
+			default:
+				return fmt.Errorf("invalid persistence type: %s", persistenceType)
+			}
 
 			ownPeer := util.Peer{
 				ID:      id,
@@ -33,7 +45,7 @@ func main() {
 			peers := parsePeers(rawPeers)
 
 			// Choose transport and start
-			app := grpc.NewRaftGRPCServer(ownPeer, peers)
+			app := grpc.NewRaftGRPCServer(ownPeer, peers, persistence)
 
 			ctx := context.Background()
 			return app.Serve(ctx)
@@ -44,6 +56,8 @@ func main() {
 	rootCmd.Flags().String("address", "0.0.0.0", "Address to listen on")
 	rootCmd.Flags().Int("port", 10001, "Port to listen on")
 	rootCmd.Flags().String("peers", "", "Comma-separated list of peers in 'id:host:port' format")
+	rootCmd.Flags().String("persistence", "inMemory", "Persistence type (file, inMemory)")
+	rootCmd.Flags().Int("compactionThreshold", 1000, "Compaction threshold")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("error: %v", err)

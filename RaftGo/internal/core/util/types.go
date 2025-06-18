@@ -109,3 +109,17 @@ type VolatileState struct {
 	// Election timeout
 	ElectionTimeout int `json:"electionTimeout"`
 }
+
+type InstallSnapshotRequest struct {
+	// Term of the leader
+	Term int `json:"term"`
+	// ID of the leader
+	LeaderID int `json:"leaderID"`
+	// Snapshot to install
+	Snapshot Snapshot `json:"snapshot"`
+}
+
+type InstallSnapshotResponse struct {
+	// Term of the follower
+	Term int `json:"term"`
+}

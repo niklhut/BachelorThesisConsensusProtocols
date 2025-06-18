@@ -188,8 +188,7 @@ public actor RaftNode {
                     // In this case, we should discard the entire log because our log is inconsistent
                     // with what the leader is sending regarding its snapshot base.
                     logger.info("Truncating entire log due to conflict detected within or immediately after snapshot range.")
-                    // TODO: should we do this?
-                    // persistentState.log.removeAll(keepingCapacity: true)
+                    persistentState.log.removeAll(keepingCapacity: true)
                 }
             }
 

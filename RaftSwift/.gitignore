@@ -6,8 +6,3 @@ DerivedData/
 .swiftpm/configuration/registries.json
 .swiftpm/xcode/package.xcworkspace/contents.xcworkspacedata
 .netrc
-
-# Ignore docker compose since it is generated
-docker-compose.yml
-
-raft-snapshots

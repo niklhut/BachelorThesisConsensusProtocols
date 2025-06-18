@@ -61,3 +61,22 @@ func (s *RaftPeerService) RequestVote(
 		VoteGranted: resp.VoteGranted,
 	}, nil
 }
+
+func (s *RaftPeerService) InstallSnapshot(
+	ctx context.Context,
+	req *proto.InstallSnapshotRequest,
+) (*proto.InstallSnapshotResponse, error) {
+	resp := s.node.HandleInstallSnapshot(util.InstallSnapshotRequest{
+		Term:     int(req.Term),
+		LeaderID: int(req.LeaderId),
+		Snapshot: util.Snapshot{
+			LastIncludedIndex: int(req.Snapshot.LastIncludedIndex),
+			LastIncludedTerm:  int(req.Snapshot.LastIncludedTerm),
+			StateMachine:      req.Snapshot.StateMachine,
+		},
+	})
+
+	return &proto.InstallSnapshotResponse{
+		Term: uint64(resp.Term),
+	}, nil
+}

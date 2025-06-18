@@ -46,6 +46,10 @@ type PersistentState struct {
 	Persistence RaftNodePersistence `json:"persistence"`
 }
 
+func (p *PersistentState) LogLength() int {
+	return p.Snapshot.LastIncludedIndex + len(p.Log)
+}
+
 type InMemoryRaftNodePersistence struct {
 	mu                  sync.RWMutex
 	compactionThreshold int

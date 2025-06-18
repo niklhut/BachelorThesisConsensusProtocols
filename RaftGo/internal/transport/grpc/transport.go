@@ -88,3 +88,34 @@ func (t *grpcRaftPeerTransport) RequestVote(
 		VoteGranted: protoResp.VoteGranted,
 	}, nil
 }
+
+// InstallSnapshot implements RaftPeerTransport.InstallSnapshot
+func (t *grpcRaftPeerTransport) InstallSnapshot(
+	ctx context.Context,
+	req util.InstallSnapshotRequest,
+	to util.Peer,
+) (util.InstallSnapshotResponse, error) {
+	client, err := t.clientPool.GetClient(to)
+	if err != nil {
+		return util.InstallSnapshotResponse{}, fmt.Errorf("failed to get gRPC client: %w", err)
+	}
+
+	protoReq := &proto.InstallSnapshotRequest{
+		Term:     uint64(req.Term),
+		LeaderId: uint32(req.LeaderID),
+		Snapshot: &proto.Snapshot{
+			LastIncludedIndex: uint64(req.Snapshot.LastIncludedIndex),
+			LastIncludedTerm:  uint64(req.Snapshot.LastIncludedTerm),
+			StateMachine:      req.Snapshot.StateMachine,
+		},
+	}
+
+	protoResp, err := client.InstallSnapshot(ctx, protoReq)
+	if err != nil {
+		return util.InstallSnapshotResponse{}, fmt.Errorf("rpc InstallSnapshot failed: %w", err)
+	}
+
+	return util.InstallSnapshotResponse{
+		Term: int(protoResp.Term),
+	}, nil
+}

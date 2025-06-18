@@ -29,6 +29,12 @@ type RaftPeerTransport interface {
 		request util.RequestVoteRequest,
 		toPeer util.Peer,
 	) (util.RequestVoteResponse, error)
+
+	InstallSnapshot(
+		ctx context.Context,
+		request util.InstallSnapshotRequest,
+		toPeer util.Peer,
+	) (util.InstallSnapshotResponse, error)
 }
 
 // RaftNode represents a single node in the Raft cluster.
@@ -119,6 +125,10 @@ func (rn *RaftNode) HandleRequestVote(ctx context.Context, req util.RequestVoteR
 	rn.resetElectionTimer()
 
 	if req.Term < rn.persistentState.CurrentTerm {
+		rn.logger.Info("Received lower term, not voting for candidate",
+			slog.Int("term", req.Term),
+			slog.Int("myTerm", rn.persistentState.CurrentTerm),
+		)
 		return util.RequestVoteResponse{
 			Term:        rn.persistentState.CurrentTerm,
 			VoteGranted: false,
@@ -133,6 +143,10 @@ func (rn *RaftNode) HandleRequestVote(ctx context.Context, req util.RequestVoteR
 
 	if (rn.persistentState.VotedFor == nil || *rn.persistentState.VotedFor == req.CandidateID) &&
 		rn.isLogAtLeastAsUpToDate(req.LastLogIndex, req.LastLogTerm) {
+		rn.logger.Debug("Granting vote to candidate",
+			slog.Int("candidateID", req.CandidateID),
+			slog.Int("term", req.Term),
+		)
 		rn.persistentState.VotedFor = &req.CandidateID
 
 		return util.RequestVoteResponse{
@@ -182,9 +196,9 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 
 	// Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm.
 	if req.PrevLogIndex > 0 {
-		if len(rn.persistentState.Log) < req.PrevLogIndex {
+		if rn.persistentState.LogLength() < req.PrevLogIndex {
 			rn.logger.Info("Log is too short",
-				slog.Int("logLength", len(rn.persistentState.Log)),
+				slog.Int("logLength", rn.persistentState.LogLength()),
 				slog.Int("neededIndex", req.PrevLogIndex),
 			)
 			return util.AppendEntriesResponse{
@@ -193,8 +207,15 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 			}
 		}
 
-		prevLogTerm := rn.persistentState.Log[req.PrevLogIndex-1].Term
+		// prevLogTerm := rn.persistentState.Log[req.PrevLogIndex-1].Term
+		var prevLogTerm int
+		if req.PrevLogIndex > rn.persistentState.Snapshot.LastIncludedIndex {
+			prevLogTerm = rn.persistentState.Log[req.PrevLogIndex-rn.persistentState.Snapshot.LastIncludedIndex-1].Term
+		} else {
+			prevLogTerm = rn.persistentState.Snapshot.LastIncludedTerm
+		}
 		if prevLogTerm != req.PrevLogTerm {
+			// Term mismatch at the expected previous index
 			rn.logger.Info("Term mismatch at prevLogIndex",
 				slog.Int("prevLogIndex", req.PrevLogIndex),
 				slog.Int("reqPrevLogTerm", req.PrevLogTerm),
@@ -213,10 +234,10 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 		var conflictIndex int = -1
 
 		for i, newEntry := range req.Entries {
-			logIndex := req.PrevLogIndex + i + 1
-			arrayIndex := logIndex - 1
+			logIndex := req.PrevLogIndex + i + 1                                       // The absolute index of the log entry
+			arrayIndex := logIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1 // The index in the log array
 
-			if arrayIndex < len(rn.persistentState.Log) {
+			if arrayIndex >= 0 && arrayIndex < len(rn.persistentState.Log) {
 				// This is an existing entry in our log - check for conflict
 				existingEntry := rn.persistentState.Log[arrayIndex]
 				if existingEntry.Term != newEntry.Term {
@@ -231,6 +252,12 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 				}
 
 				// Entry matches, will be replicated correctly
+			} else if arrayIndex < 0 {
+				// The new entry's log index is covered by the snapshot, which means a conflict.
+				// This can happen if the leader's snapshot is older than ours,
+				// or if it's trying to send entries that are already in our snapshot.
+				rn.logger.Info("New entry at index is already covered by snapshot.", slog.Int("logIndex", logIndex))
+				conflictIndex = i
 			} else {
 				// We've reached the end of our log - remaining entries are new
 				break
@@ -239,21 +266,31 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 
 		if conflictIndex != -1 {
 			// Remove conflicting entry and everything that follows
-			deleteFromIndex := req.PrevLogIndex + conflictIndex + 1
-			deleteFromArrayIndex := deleteFromIndex - 1
+			deleteFromIndex := req.PrevLogIndex + conflictIndex + 1                                     // The absolute index of the log entry
+			deleteFromArrayIndex := deleteFromIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1 // The index in the log array
 
-			rn.logger.Debug("Truncating log from index",
-				slog.Int("deleteFromIndex", deleteFromIndex))
-			rn.persistentState.Log = rn.persistentState.Log[:deleteFromArrayIndex]
+			if deleteFromArrayIndex >= 0 {
+				rn.logger.Debug("Truncating log from index",
+					slog.Int("deleteFromIndex", deleteFromIndex),
+					slog.Int("deleteFromArrayIndex", deleteFromArrayIndex),
+				)
+				rn.persistentState.Log = rn.persistentState.Log[:deleteFromArrayIndex]
+			} else {
+				// The conflict is within the snapshot range or immediately after.
+				// In this case, we should discard the entire log because our log is inconsistent
+				// with what the leader is sending regarding its snapshot base.
+				rn.logger.Info("Truncating entire log due to conflict detected within or immediately after snapshot range.")
+				rn.persistentState.Log = rn.persistentState.Log[:0]
+			}
 		}
 
 		// Append any new entries not already in the log
-		startAppendIndex := max(0, len(rn.persistentState.Log)-req.PrevLogIndex)
+		startAppendIndex := max(0, rn.persistentState.LogLength()-req.PrevLogIndex)
 		if startAppendIndex < len(req.Entries) {
 			entriesToAppend := req.Entries[startAppendIndex:]
 			rn.logger.Debug("Appending entries",
 				slog.Int("entriesCount", len(entriesToAppend)),
-				slog.Int("logIndex", len(rn.persistentState.Log)+1),
+				slog.Int("logIndex", rn.persistentState.LogLength()+1),
 			)
 			rn.persistentState.Log = append(rn.persistentState.Log, entriesToAppend...)
 		}
@@ -261,7 +298,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 
 	// Update commit index
 	if req.LeaderCommit > rn.volatileState.CommitIndex {
-		lastLogIndex := len(rn.persistentState.Log)
+		lastLogIndex := rn.persistentState.LogLength()
 		rn.volatileState.CommitIndex = min(req.LeaderCommit, lastLogIndex)
 		rn.logger.Debug("Updating commit index",
 			slog.Int("commitIndex", rn.volatileState.CommitIndex),
@@ -273,6 +310,79 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 	return util.AppendEntriesResponse{
 		Term:    rn.persistentState.CurrentTerm,
 		Success: true,
+	}
+}
+
+func (rn *RaftNode) HandleInstallSnapshot(request util.InstallSnapshotRequest) util.InstallSnapshotResponse {
+	rn.logger.Debug("Received InstallSnapshot",
+		slog.Int("leaderID", request.LeaderID),
+	)
+
+	rn.ackquireLockWithLogger("installSnapshot")
+	defer rn.releaseLockWithLogger("installSnapshot")
+
+	rn.resetElectionTimer()
+
+	// Reply immediately if term < currentTerm
+	if request.Term < rn.persistentState.CurrentTerm {
+		return util.InstallSnapshotResponse{
+			Term: rn.persistentState.CurrentTerm,
+		}
+	} else if request.Term > rn.persistentState.CurrentTerm {
+		rn.logger.Info("Received higher term, becoming follower",
+			slog.Int("newTerm", request.Term),
+			slog.Int("leaderID", request.LeaderID),
+		)
+		rn.becomeFollower(request.Term, &request.LeaderID)
+	}
+
+	// Save snapshot
+	oldSnapshot := rn.persistentState.Snapshot
+	err := rn.persistentState.Persistence.SaveSnapshot(request.Snapshot, rn.persistentState.OwnPeer.ID)
+	if err != nil {
+		rn.logger.Error("Failed to save snapshot", slog.String("error", err.Error()))
+		return util.InstallSnapshotResponse{
+			Term: rn.persistentState.CurrentTerm,
+		}
+	}
+	rn.persistentState.Snapshot = request.Snapshot
+
+	snapshotLastIndex := request.Snapshot.LastIncludedIndex
+	snapshotLastTerm := request.Snapshot.LastIncludedTerm
+
+	// Adjust the log based on the new snapshot
+	// If an existing entry has the same index and term as the snapshot's
+	// last included entry, we can keep the log entries that follow it.
+	// Otherwise, we need to truncate the entire log.
+	if oldSnapshot.LastIncludedIndex < snapshotLastIndex {
+		logIndex := oldSnapshot.LastIncludedIndex + len(rn.persistentState.Log) - snapshotLastIndex
+
+		if logIndex >= 0 && rn.persistentState.Log[logIndex].Term == snapshotLastTerm {
+			rn.logger.Info("Kept log entries after installing snapshot",
+				slog.Int("logIndex", logIndex),
+			)
+			rn.persistentState.Log = rn.persistentState.Log[:logIndex]
+		} else {
+			rn.logger.Info("Discarded entire log due to conflict")
+			rn.persistentState.Log = rn.persistentState.Log[:0]
+		}
+	} else {
+		rn.logger.Info("Discarded entire log since new snapshot is older")
+		rn.persistentState.Log = rn.persistentState.Log[:0]
+	}
+
+	// Reset state machine using the snapshot
+	rn.persistentState.StateMachine = request.Snapshot.StateMachine
+
+	// Update commit and last applied indices to reflect the snapshot's state
+	rn.volatileState.CommitIndex = snapshotLastIndex
+	rn.volatileState.LastApplied = snapshotLastIndex
+
+	rn.logger.Info("Successfully installed snapshot",
+		slog.Int("lastIncludedIndex", snapshotLastIndex),
+	)
+	return util.InstallSnapshotResponse{
+		Term: rn.persistentState.CurrentTerm,
 	}
 }
 
@@ -368,7 +478,7 @@ func (rn *RaftNode) GetImplementationVersion(ctx context.Context) util.Implement
 	return util.ImplementationVersionResponse{
 		ID:             rn.persistentState.OwnPeer.ID,
 		Implementation: "Go",
-		Version:        "1.2.0",
+		Version:        "1.3.0",
 	}
 }
 
@@ -376,6 +486,7 @@ func (rn *RaftNode) GetImplementationVersion(ctx context.Context) util.Implement
 
 // Start starts the node.
 func (rn *RaftNode) Start() {
+	rn.loadSnapshotOnStartup()
 	rn.startHeartbeatTask()
 }
 
@@ -533,10 +644,10 @@ func (rn *RaftNode) requestVotes() error {
 
 	currentTerm := rn.persistentState.CurrentTerm
 	candidateID := rn.persistentState.OwnPeer.ID
-	lastLogIndex := len(rn.persistentState.Log)
-	lastLogTerm := 0
-	if lastLogIndex > 0 {
-		lastLogTerm = rn.persistentState.Log[lastLogIndex-1].Term
+	lastLogIndex := rn.persistentState.LogLength()
+	lastLogTerm := rn.persistentState.Snapshot.LastIncludedTerm
+	if len(rn.persistentState.Log) > 0 {
+		lastLogTerm = rn.persistentState.Log[len(rn.persistentState.Log)-1].Term
 	}
 	peers := rn.persistentState.Peers
 	rn.mu.RUnlock()
@@ -673,7 +784,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 	leaderID := rn.persistentState.OwnPeer.ID
 	peers := rn.persistentState.Peers
 	commitIndex := rn.volatileState.CommitIndex
-	originalLogLength := len(rn.persistentState.Log)
+	originalLogLength := rn.persistentState.LogLength()
 
 	// Add log entries to log
 	rn.persistentState.Log = append(rn.persistentState.Log, entries...)
@@ -748,13 +859,6 @@ func (rn *RaftNode) replicateLogToPeer(
 	retryCount := 0
 	targetEndIndex := originalLogLength + len(entries)
 
-	rn.ackquireLockWithLogger("replicateLogToPeer 1")
-	peerNextIndex := rn.leaderState.NextIndex[peer.ID]
-	if peerNextIndex == 0 {
-		peerNextIndex = len(rn.persistentState.Log) + 1
-	}
-	rn.releaseLockWithLogger("replicateLogToPeer 1")
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -762,53 +866,83 @@ func (rn *RaftNode) replicateLogToPeer(
 		default:
 		}
 
-		rn.ackquireLockWithLogger("replicateLogToPeer 2")
+		rn.ackquireLockWithLogger("replicateLogToPeer 1")
 
 		// Check conditions for continuing
 		if rn.volatileState.State != util.ServerStateLeader ||
 			rn.persistentState.CurrentTerm != currentTerm ||
 			rn.firstPeerWithID(peer.ID) == nil {
-			rn.releaseLockWithLogger("replicateLogToPeer 2")
+			rn.releaseLockWithLogger("replicateLogToPeer 1")
 			return nil
 		}
-		rn.releaseLockWithLogger("replicateLogToPeer 2")
+		rn.releaseLockWithLogger("replicateLogToPeer 1")
 
 		// Check if already successful
 		if replicationTracker.IsSuccessful(peer.ID) {
 			return nil
 		}
 
-		rn.ackquireLockWithLogger("replicateLogToPeer 3")
+		rn.ackquireLockWithLogger("replicateLogToPeer 2")
 		currentMatchIndex := rn.leaderState.MatchIndex[peer.ID]
 		if currentMatchIndex > targetEndIndex {
-			rn.releaseLockWithLogger("replicateLogToPeer 3")
+			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			replicationTracker.MarkSuccess(peer.ID)
 			return nil
 		}
 
-		peerPrevLogIndex := peerNextIndex - 1
-		peerPrevLogTerm := 0
-		if peerPrevLogIndex > 0 && peerPrevLogIndex <= len(rn.persistentState.Log) {
-			peerPrevLogTerm = rn.persistentState.Log[peerPrevLogIndex-1].Term
+		// Determine peer's next index
+		peerNextIndex := rn.leaderState.NextIndex[peer.ID]
+		if peerNextIndex == 0 {
+			peerNextIndex = len(rn.persistentState.Log) + 1
+		}
+
+		// Check if peer needs a snapshot
+		if peerNextIndex <= rn.persistentState.Snapshot.LastIncludedIndex {
+			rn.releaseLockWithLogger("replicateLogToPeer 2")
+			// Peer is too far behind, send snapshot
+			rn.logger.Info("Peer is too far behind, sending snapshot", "snapshotLastIncludedIndex",
+				slog.Int("peerID", peer.ID),
+				slog.Int("peerNextIndex", peerNextIndex),
+				slog.Int("snapshotLastIncludedIndex", rn.persistentState.Snapshot.LastIncludedIndex),
+			)
+			rn.sendSnapshotToPeer(peer)
+
+			// After sending snapshot, update nextIndex and matchIndex
+			rn.leaderState.NextIndex[peer.ID] = rn.persistentState.Snapshot.LastIncludedIndex + 1
+			rn.leaderState.MatchIndex[peer.ID] = rn.persistentState.Snapshot.LastIncludedIndex
+
+			// Continue to next iteration to try sending append entries from the new nextIndex
+			continue
 		}
 
 		// Calculate entries to send
 		var entriesToSend []util.LogEntry
 		if peerNextIndex <= originalLogLength {
 			// Peer needs entries from the original log (catch-up scenario)
-			startIndex := peerNextIndex - 1 // Convert to 0-based index
+			startIndex := peerNextIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1
 			entriesToSend = rn.persistentState.Log[startIndex:]
 		} else if peerNextIndex == originalLogLength+1 {
 			// Peer is up-to-date with original log, send only new entries
 			entriesToSend = entries
 		} else {
 			// Peer's nextIndex is beyond what we expect - reset and retry
+			rn.logger.Warn("Peer's nextIndex is beyond what we expect",
+				slog.Int("peerID", peer.ID),
+				slog.Int("peerNextIndex", peerNextIndex),
+				slog.Int("originalLogLength", originalLogLength),
+			)
 			rn.leaderState.NextIndex[peer.ID] = originalLogLength + 1
-			rn.releaseLockWithLogger("replicateLogToPeer 3")
+			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			continue
 		}
 
-		rn.releaseLockWithLogger("replicateLogToPeer 3")
+		peerPrevLogIndex := peerNextIndex - 1
+		peerPrevLogTerm := rn.persistentState.Snapshot.LastIncludedTerm
+		if peerPrevLogIndex > rn.persistentState.Snapshot.LastIncludedIndex {
+			peerPrevLogTerm = rn.persistentState.Log[peerPrevLogIndex-rn.persistentState.Snapshot.LastIncludedIndex-1].Term
+		}
+
+		rn.releaseLockWithLogger("replicateLogToPeer 2")
 
 		rn.logger.Debug("Sending append entries",
 			slog.Int("peerId", peer.ID),
@@ -853,7 +987,7 @@ func (rn *RaftNode) replicateLogToPeer(
 		default:
 		}
 
-		rn.ackquireLockWithLogger("replicateLogToPeer 4")
+		rn.ackquireLockWithLogger("replicateLogToPeer 3")
 
 		if result.Term > rn.persistentState.CurrentTerm {
 			rn.logger.Info("Received higher term, becoming follower",
@@ -861,7 +995,7 @@ func (rn *RaftNode) replicateLogToPeer(
 				slog.Int("peerId", peer.ID),
 			)
 			rn.becomeFollower(result.Term, &peer.ID)
-			rn.releaseLockWithLogger("replicateLogToPeer 4")
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			return nil
 		}
 
@@ -874,12 +1008,12 @@ func (rn *RaftNode) replicateLogToPeer(
 			rn.leaderState.MatchIndex[peer.ID] = newMatchIndex
 			rn.leaderState.NextIndex[peer.ID] = newMatchIndex + 1
 
-			rn.releaseLockWithLogger("replicateLogToPeer 4")
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			return nil
 		} else {
 			// Log inconsistency, decrement nextIndex and retry
 			rn.leaderState.NextIndex[peer.ID] = max(1, rn.leaderState.NextIndex[peer.ID]-1)
-			rn.releaseLockWithLogger("replicateLogToPeer 4")
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			retryCount++
 
 			rn.logger.Info("Append entries failed, retrying with earlier index",
@@ -912,7 +1046,7 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 	// Add own match index (implicitly the end of the log)
 	allMatchIndices := make(map[int]int)
 	maps.Copy(allMatchIndices, rn.leaderState.MatchIndex)
-	allMatchIndices[rn.persistentState.OwnPeer.ID] = len(rn.persistentState.Log)
+	allMatchIndices[rn.persistentState.OwnPeer.ID] = rn.persistentState.LogLength()
 
 	rn.mu.RUnlock()
 
@@ -930,8 +1064,19 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 
 	// Only update commit index if it's in the current term
 	for newCommitIndex := majorityIndex; newCommitIndex > oldCommitIndex; newCommitIndex-- {
-		if newCommitIndex > 0 && newCommitIndex <= len(rn.persistentState.Log) {
-			entry := rn.persistentState.Log[newCommitIndex-1]
+		if newCommitIndex <= rn.persistentState.Snapshot.LastIncludedIndex {
+			// This index is covered by the snapshot, so it's already committed
+			// Don't update commitIndex as it should already be at least this value
+			break
+		}
+
+		// Calculate the array index in the current log
+		logArrayIndex := newCommitIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1
+
+		// Ensure the index is within bounds of the current log
+		if logArrayIndex >= 0 && logArrayIndex < len(rn.persistentState.Log) {
+			entry := rn.persistentState.Log[logArrayIndex]
+			// Only commit entries from the current term for safety
 			if entry.Term == rn.persistentState.CurrentTerm {
 				rn.volatileState.CommitIndex = newCommitIndex
 				rn.logger.Debug("Updated commit index",
@@ -939,6 +1084,14 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 					slog.Int("newCommitIndex", newCommitIndex))
 				break
 			}
+			// If the entry is from an older term, continue checking lower indices
+		} else {
+			// Index is out of bounds - this shouldn't happen with correct logic
+			rn.logger.Warn("Calculated newCommitIndex is out of bounds for log",
+				slog.Int("newCommitIndex", newCommitIndex),
+				slog.Int("logLength", len(rn.persistentState.Log)),
+				slog.Int("snapshotLastIncludedIndex", rn.persistentState.Snapshot.LastIncludedIndex),
+			)
 		}
 	}
 
@@ -949,21 +1102,43 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 // Applies the committed entries to the state machine.
 func (rn *RaftNode) applyCommittedEntries() {
 	for rn.volatileState.LastApplied < rn.volatileState.CommitIndex {
-		entry := rn.persistentState.Log[rn.volatileState.LastApplied]
+		nextApplyIndex := rn.volatileState.LastApplied + 1
 
-		if entry.Key != nil {
-			oldValue := rn.persistentState.StateMachine[*entry.Key]
-			rn.persistentState.StateMachine[*entry.Key] = *entry.Value
+		if nextApplyIndex <= rn.persistentState.Snapshot.LastIncludedIndex {
+			rn.volatileState.LastApplied = nextApplyIndex
+			continue
+		}
 
-			rn.logger.Debug("Applied entry",
-				slog.Int("index", rn.volatileState.LastApplied+1),
-				slog.String("key", *entry.Key),
-				slog.String("value", *entry.Value),
-				slog.String("previousValue", oldValue),
+		logArrayIndex := nextApplyIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1
+
+		if logArrayIndex >= 0 && logArrayIndex < len(rn.persistentState.Log) {
+			entry := rn.persistentState.Log[logArrayIndex]
+
+			if entry.Key != nil {
+				oldValue := rn.persistentState.StateMachine[*entry.Key]
+				rn.persistentState.StateMachine[*entry.Key] = *entry.Value
+
+				rn.logger.Debug("Applied entry",
+					slog.Int("index", rn.volatileState.LastApplied+1),
+					slog.String("key", *entry.Key),
+					slog.String("value", *entry.Value),
+					slog.String("previousValue", oldValue),
+				)
+			}
+		} else {
+			rn.logger.Warn("Cannot apply entry at index: log array index is out of bounds",
+				slog.Int("index", nextApplyIndex),
+				slog.Int("logLength", len(rn.persistentState.Log)),
+				slog.Int("logArrayIndex", logArrayIndex),
+				slog.Int("snapshotLastIncludedIndex", rn.persistentState.Snapshot.LastIncludedIndex),
 			)
 		}
 
 		rn.volatileState.LastApplied++
+	}
+
+	if rn.shouldCreateSnapshot() {
+		go rn.createSnapshot()
 	}
 }
 
@@ -975,11 +1150,9 @@ func (rn *RaftNode) applyCommittedEntries() {
 //
 // - Returns: True if the node's log is at least as up-to-date as the given log.
 func (rn *RaftNode) isLogAtLeastAsUpToDate(lastLogIndex int, lastLogTerm int) bool {
-	var localLastLogTerm int
+	localLastLogTerm := rn.persistentState.Snapshot.LastIncludedTerm
 	if len(rn.persistentState.Log) > 0 {
 		localLastLogTerm = rn.persistentState.Log[len(rn.persistentState.Log)-1].Term
-	} else {
-		localLastLogTerm = 0
 	}
 
 	if lastLogTerm != localLastLogTerm {
@@ -990,15 +1163,137 @@ func (rn *RaftNode) isLogAtLeastAsUpToDate(lastLogIndex int, lastLogTerm int) bo
 	return lastLogIndex >= localLastLogIndex
 }
 
-// -- State Changes --
+// -- Snapshotting --
 
-// Stop leading.
-func (rn *RaftNode) stopLeading() {
-	rn.leaderState = util.LeaderState{
-		NextIndex:  make(map[int]int),
-		MatchIndex: make(map[int]int),
+// Loads the snapshot on startup of the node.
+func (rn *RaftNode) loadSnapshotOnStartup() {
+	snapshot, err := rn.persistentState.Persistence.LoadSnapshot(rn.persistentState.OwnPeer.ID)
+	if err != nil {
+		rn.logger.Error("Failed to load snapshot", slog.Any("error", err))
+		return
+	}
+
+	if snapshot != nil {
+		rn.mu.Lock()
+		defer rn.mu.Unlock()
+
+		rn.persistentState.Snapshot = *snapshot
+		rn.persistentState.CurrentTerm = snapshot.LastIncludedTerm
+		rn.persistentState.StateMachine = snapshot.StateMachine
+		rn.volatileState.CommitIndex = snapshot.LastIncludedIndex
+		rn.volatileState.LastApplied = snapshot.LastIncludedIndex
+		rn.logger.Info("Successfully loaded snapshot",
+			slog.Int("lastIncludedIndex", snapshot.LastIncludedIndex),
+			slog.Int("lastIncludedTerm", snapshot.LastIncludedTerm),
+		)
 	}
 }
+
+// Checks if a snapshot should be created.
+func (rn *RaftNode) shouldCreateSnapshot() bool {
+	if rn.persistentState.Persistence.CompactionThreshold() <= 0 {
+		return false
+	}
+
+	return (rn.volatileState.CommitIndex-rn.persistentState.Snapshot.LastIncludedIndex) >= rn.persistentState.Persistence.CompactionThreshold() && !rn.persistentState.IsSnapshotting
+}
+
+// Creates a snapshot.
+func (rn *RaftNode) createSnapshot() {
+	if rn.persistentState.IsSnapshotting {
+		return
+	}
+
+	rn.persistentState.IsSnapshotting = true
+	defer func() {
+		rn.persistentState.IsSnapshotting = false
+	}()
+
+	rn.mu.RLock()
+	snapshotLastIndex := rn.volatileState.CommitIndex
+	lastCommittedArrayIndex := snapshotLastIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1
+	snapshotLastTerm := rn.persistentState.Log[lastCommittedArrayIndex].Term
+
+	snapshot := util.Snapshot{
+		LastIncludedIndex: snapshotLastIndex,
+		LastIncludedTerm:  snapshotLastTerm,
+		StateMachine:      rn.persistentState.StateMachine,
+	}
+	rn.mu.RUnlock()
+
+	err := rn.persistentState.Persistence.SaveSnapshot(snapshot, rn.persistentState.OwnPeer.ID)
+	if err != nil {
+		rn.logger.Error("Failed to save snapshot", slog.Any("error", err))
+		return
+	}
+
+	rn.mu.Lock()
+	rn.persistentState.Snapshot = snapshot
+
+	// Truncate the log after saving snapshot
+	entriesToKeep := lastCommittedArrayIndex + 1
+	rn.persistentState.Log = rn.persistentState.Log[entriesToKeep:]
+	rn.mu.Unlock()
+
+	rn.logger.Info("Successfully created snapshot",
+		slog.Int("lastIncludedIndex", snapshotLastIndex),
+		slog.Int("lastIncludedTerm", snapshotLastTerm),
+	)
+}
+
+// Sends a snapshot to a specific peer.
+func (rn *RaftNode) sendSnapshotToPeer(peer util.Peer) {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
+	if rn.volatileState.State != util.ServerStateLeader {
+		return
+	}
+
+	currentTerm := rn.persistentState.CurrentTerm
+	leaderID := rn.persistentState.OwnPeer.ID
+	snapshot := rn.persistentState.Snapshot
+	rn.logger.Info("Sending InstallSnapshot RPC to peer",
+		slog.Int("peerID", peer.ID),
+		slog.Int("lastIncludedIndex", snapshot.LastIncludedIndex),
+		slog.Int("lastIncludedTerm", snapshot.LastIncludedTerm),
+	)
+
+	request := util.InstallSnapshotRequest{
+		Term:     currentTerm,
+		LeaderID: leaderID,
+		Snapshot: snapshot,
+	}
+
+	response, err := rn.transport.InstallSnapshot(context.Background(), request, peer)
+	if err != nil {
+		rn.logger.Error("Failed to send snapshot to peer",
+			slog.Any("error", err),
+			slog.Int("peerID", peer.ID),
+		)
+		return
+	}
+
+	if response.Term > rn.persistentState.CurrentTerm {
+		rn.logger.Info("Received higher term during InstallSnapshot, becoming follower",
+			slog.Int("peerID", peer.ID),
+			slog.Int("term", response.Term),
+		)
+		rn.becomeFollower(response.Term, &peer.ID)
+		return
+	}
+
+	// Upon successful installation, update matchIndex and nextIndex for the peer
+	rn.leaderState.MatchIndex[peer.ID] = snapshot.LastIncludedIndex
+	rn.leaderState.NextIndex[peer.ID] = snapshot.LastIncludedIndex + 1
+	rn.logger.Info("Successfully sent snapshot to peer",
+		slog.Int("peerID", peer.ID),
+		slog.Int("lastIncludedIndex", snapshot.LastIncludedIndex),
+		slog.Int("lastIncludedTerm", snapshot.LastIncludedTerm),
+	)
+}
+
+// -- State Changes --
 
 // Become follower.
 //
@@ -1006,29 +1301,36 @@ func (rn *RaftNode) stopLeading() {
 //   - newTerm: The new term.
 //   - currentLeaderId: The ID of the current leader.
 func (rn *RaftNode) becomeFollower(newTerm int, currentLeaderId *int) {
+	oldState := rn.volatileState.State
+	if oldState != util.ServerStateFollower {
+		rn.logger.Info(fmt.Sprintf("Transitioning from %s to follower for term %d", oldState, newTerm))
+	}
+
+	rn.volatileState.State = util.ServerStateFollower
 	rn.persistentState.CurrentTerm = newTerm
 	rn.persistentState.VotedFor = nil
-	rn.volatileState.State = util.ServerStateFollower
 	rn.volatileState.CurrentLeaderID = currentLeaderId
-
-	rn.stopLeading()
+	rn.resetElectionTimer()
 }
 
 // Become candidate.
 func (rn *RaftNode) becomeCandidate() {
-	rn.persistentState.CurrentTerm += 1
+	rn.logger.Info(fmt.Sprintf("Transitioning to candidate for term %d", rn.persistentState.CurrentTerm+1))
+
 	rn.volatileState.State = util.ServerStateCandidate
+	rn.persistentState.CurrentTerm += 1
 	rn.persistentState.VotedFor = &rn.persistentState.OwnPeer.ID
 	rn.volatileState.CurrentLeaderID = nil
-
-	rn.stopLeading()
 }
 
 // Become leader.
 func (rn *RaftNode) becomeLeader() {
+	rn.logger.Info(fmt.Sprintf("Transitioning to leader for term %d", rn.persistentState.CurrentTerm))
+
 	rn.volatileState.State = util.ServerStateLeader
 	rn.volatileState.CurrentLeaderID = &rn.persistentState.OwnPeer.ID
 
+	// Initialize nextIndex and matchIndex for all peers
 	for _, peer := range rn.persistentState.Peers {
 		rn.leaderState.NextIndex[peer.ID] = len(rn.persistentState.Log) + 1
 		rn.leaderState.MatchIndex[peer.ID] = 0

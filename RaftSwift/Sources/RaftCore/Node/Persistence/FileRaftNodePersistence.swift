@@ -9,16 +9,11 @@ public actor FileRaftNodePersistence: RaftNodePersistence {
         self.compactionThreshold = compactionThreshold
         let fileManager = FileManager.default
         let path = "raft-snapshots"
-        let url = URL(fileURLWithPath: path, isDirectory: true)
 
-        if url.path.hasPrefix("/") {
-            // Absolute path
-            directoryURL = url
-        } else {
-            // Relative path
-            directoryURL = URL(fileURLWithPath: fileManager.currentDirectoryPath)
-                .appendingPathComponent(path, isDirectory: true)
-        }
+        // Relative path
+        directoryURL = URL(fileURLWithPath: fileManager.currentDirectoryPath)
+            .appendingPathComponent(path, isDirectory: true)
+
         // Ensure the directory exists
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     }

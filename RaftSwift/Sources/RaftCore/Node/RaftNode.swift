@@ -227,10 +227,17 @@ public actor RaftNode {
             // Update term and become follower, if necessary
             logger.info("Received higher term \(request.term), becoming follower of \(request.leaderID)")
             becomeFollower(newTerm: request.term, currentLeaderId: request.leaderID)
+        } else if volatileState.state == .candidate {
+            // Own term and term of leader are the same
+            // If the node is a candidate, it should become a follower
+            becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
+        } else if volatileState.currentLeaderID != request.leaderID {
+            logger.info("Received append entries from a different leader, becoming follower of \(request.leaderID)")
+            becomeFollower(newTerm: persistentState.currentTerm, currentLeaderId: request.leaderID)
         }
 
         // Save snapshot
-        let oldSnapshot = persistentState.snapshot
+        let oldSnapshotLastIndex = persistentState.snapshot.lastIncludedIndex
         try await persistentState.persistence.saveSnapshot(request.snapshot, for: persistentState.ownPeer.id)
         persistentState.snapshot = request.snapshot
 
@@ -241,8 +248,8 @@ public actor RaftNode {
         // If an existing entry has the same index and term as the snapshot's
         // last included entry, we can keep the log entries that follow it.
         // Otherwise, we need to truncate the entire log.
-        if oldSnapshot.lastIncludedIndex < snapshotLastIndex {
-            let logIndex = oldSnapshot.lastIncludedIndex + persistentState.log.count - snapshotLastIndex
+        if oldSnapshotLastIndex < snapshotLastIndex {
+            let logIndex = oldSnapshotLastIndex + persistentState.log.count - snapshotLastIndex
 
             if logIndex >= 0, persistentState.log[logIndex].term == snapshotLastTerm {
                 logger.info("Kept \(logIndex) log entries after installing snapshot")

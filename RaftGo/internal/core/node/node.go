@@ -337,7 +337,7 @@ func (rn *RaftNode) HandleInstallSnapshot(request util.InstallSnapshotRequest) u
 	}
 
 	// Save snapshot
-	oldSnapshot := rn.persistentState.Snapshot
+	oldSnapshotLastIndex := rn.persistentState.Snapshot.LastIncludedIndex
 	err := rn.persistentState.Persistence.SaveSnapshot(request.Snapshot, rn.persistentState.OwnPeer.ID)
 	if err != nil {
 		rn.logger.Error("Failed to save snapshot", slog.String("error", err.Error()))
@@ -354,8 +354,8 @@ func (rn *RaftNode) HandleInstallSnapshot(request util.InstallSnapshotRequest) u
 	// If an existing entry has the same index and term as the snapshot's
 	// last included entry, we can keep the log entries that follow it.
 	// Otherwise, we need to truncate the entire log.
-	if oldSnapshot.LastIncludedIndex < snapshotLastIndex {
-		logIndex := oldSnapshot.LastIncludedIndex + len(rn.persistentState.Log) - snapshotLastIndex
+	if oldSnapshotLastIndex < snapshotLastIndex {
+		logIndex := oldSnapshotLastIndex + len(rn.persistentState.Log) - snapshotLastIndex
 
 		if logIndex >= 0 && rn.persistentState.Log[logIndex].Term == snapshotLastTerm {
 			rn.logger.Info("Kept log entries after installing snapshot",
@@ -704,7 +704,7 @@ func (rn *RaftNode) requestVotes() error {
 				slog.Int("peerId", result.peerId),
 			)
 			rn.becomeFollower(result.vote.Term, &result.peerId)
-			rn.mu.Unlock()
+			rn.releaseLockWithLogger("requestVotes")
 			// Cancel remaining vote requests
 			cancel()
 			return nil
@@ -720,14 +720,14 @@ func (rn *RaftNode) requestVotes() error {
 					slog.Int("numberOfPeers", len(peers)+1),
 				)
 				rn.becomeLeader()
-				rn.mu.Unlock()
+				rn.releaseLockWithLogger("requestVotes")
 				// Cancel remaining vote requests
 				cancel()
 				return nil
 			}
 		}
 
-		rn.mu.Unlock()
+		rn.releaseLockWithLogger("requestVotes")
 	}
 
 	rn.mu.RLock()
@@ -1058,8 +1058,8 @@ func (rn *RaftNode) updateCommitIndexAndApply() {
 	sort.Sort(sort.Reverse(sort.IntSlice(indices)))
 
 	majorityIndex := indices[rn.Majority()-1]
-	rn.mu.Lock()
-	defer rn.mu.Unlock()
+	rn.ackquireLockWithLogger("updateCommitIndexAndApply 1")
+	defer rn.releaseLockWithLogger("updateCommitIndexAndApply 1")
 	oldCommitIndex := rn.volatileState.CommitIndex
 
 	// Only update commit index if it's in the current term
@@ -1137,9 +1137,11 @@ func (rn *RaftNode) applyCommittedEntries() {
 		rn.volatileState.LastApplied++
 	}
 
-	if rn.shouldCreateSnapshot() {
-		go rn.createSnapshot()
-	}
+	go func() {
+		if rn.shouldCreateSnapshot() {
+			rn.createSnapshot()
+		}
+	}()
 }
 
 // Checks if the node's log is at least as up-to-date as the given log.
@@ -1174,8 +1176,8 @@ func (rn *RaftNode) loadSnapshotOnStartup() {
 	}
 
 	if snapshot != nil {
-		rn.mu.Lock()
-		defer rn.mu.Unlock()
+		rn.ackquireLockWithLogger("loadSnapshotOnStartup 1")
+		defer rn.releaseLockWithLogger("loadSnapshotOnStartup 1")
 
 		rn.persistentState.Snapshot = *snapshot
 		rn.persistentState.CurrentTerm = snapshot.LastIncludedTerm
@@ -1191,6 +1193,9 @@ func (rn *RaftNode) loadSnapshotOnStartup() {
 
 // Checks if a snapshot should be created.
 func (rn *RaftNode) shouldCreateSnapshot() bool {
+	rn.mu.RLock()
+	defer rn.mu.RUnlock()
+
 	if rn.persistentState.Persistence.CompactionThreshold() <= 0 {
 		return false
 	}
@@ -1200,40 +1205,59 @@ func (rn *RaftNode) shouldCreateSnapshot() bool {
 
 // Creates a snapshot.
 func (rn *RaftNode) createSnapshot() {
+	rn.ackquireLockWithLogger("createSnapshot 1")
 	if rn.persistentState.IsSnapshotting {
+		rn.releaseLockWithLogger("createSnapshot 1")
 		return
 	}
 
 	rn.persistentState.IsSnapshotting = true
-	defer func() {
-		rn.persistentState.IsSnapshotting = false
-	}()
 
-	rn.mu.RLock()
 	snapshotLastIndex := rn.volatileState.CommitIndex
+	if snapshotLastIndex <= rn.persistentState.Snapshot.LastIncludedIndex {
+		rn.persistentState.IsSnapshotting = false
+		rn.releaseLockWithLogger("createSnapshot 1")
+		return
+	}
+
 	lastCommittedArrayIndex := snapshotLastIndex - rn.persistentState.Snapshot.LastIncludedIndex - 1
+	if lastCommittedArrayIndex < 0 || lastCommittedArrayIndex >= len(rn.persistentState.Log) {
+		rn.persistentState.IsSnapshotting = false
+		rn.releaseLockWithLogger("createSnapshot 1")
+		return
+	}
+
 	snapshotLastTerm := rn.persistentState.Log[lastCommittedArrayIndex].Term
+
+	// Deep copy the state machine to avoid concurrent access
+	stateMachineCopy := make(map[string]string)
+	maps.Copy(stateMachineCopy, rn.persistentState.StateMachine)
 
 	snapshot := util.Snapshot{
 		LastIncludedIndex: snapshotLastIndex,
 		LastIncludedTerm:  snapshotLastTerm,
-		StateMachine:      rn.persistentState.StateMachine,
+		StateMachine:      stateMachineCopy,
 	}
-	rn.mu.RUnlock()
+	rn.releaseLockWithLogger("createSnapshot 1")
 
 	err := rn.persistentState.Persistence.SaveSnapshot(snapshot, rn.persistentState.OwnPeer.ID)
+
+	rn.ackquireLockWithLogger("createSnapshot 2")
+	defer rn.releaseLockWithLogger("createSnapshot 2")
+	defer func() {
+		rn.persistentState.IsSnapshotting = false
+	}()
+
 	if err != nil {
 		rn.logger.Error("Failed to save snapshot", slog.Any("error", err))
 		return
 	}
 
-	rn.mu.Lock()
 	rn.persistentState.Snapshot = snapshot
 
 	// Truncate the log after saving snapshot
 	entriesToKeep := lastCommittedArrayIndex + 1
 	rn.persistentState.Log = rn.persistentState.Log[entriesToKeep:]
-	rn.mu.Unlock()
 
 	rn.logger.Info("Successfully created snapshot",
 		slog.Int("lastIncludedIndex", snapshotLastIndex),
@@ -1244,15 +1268,17 @@ func (rn *RaftNode) createSnapshot() {
 // Sends a snapshot to a specific peer.
 func (rn *RaftNode) sendSnapshotToPeer(peer util.Peer) {
 	rn.mu.RLock()
-	defer rn.mu.RUnlock()
 
 	if rn.volatileState.State != util.ServerStateLeader {
+		rn.mu.RUnlock()
 		return
 	}
 
 	currentTerm := rn.persistentState.CurrentTerm
 	leaderID := rn.persistentState.OwnPeer.ID
 	snapshot := rn.persistentState.Snapshot
+	rn.mu.RUnlock()
+
 	rn.logger.Info("Sending InstallSnapshot RPC to peer",
 		slog.Int("peerID", peer.ID),
 		slog.Int("lastIncludedIndex", snapshot.LastIncludedIndex),
@@ -1273,6 +1299,9 @@ func (rn *RaftNode) sendSnapshotToPeer(peer util.Peer) {
 		)
 		return
 	}
+
+	rn.ackquireLockWithLogger("sendSnapshotToPeer 1")
+	defer rn.releaseLockWithLogger("sendSnapshotToPeer 1")
 
 	if response.Term > rn.persistentState.CurrentTerm {
 		rn.logger.Info("Received higher term during InstallSnapshot, becoming follower",
@@ -1329,6 +1358,10 @@ func (rn *RaftNode) becomeLeader() {
 
 	rn.volatileState.State = util.ServerStateLeader
 	rn.volatileState.CurrentLeaderID = &rn.persistentState.OwnPeer.ID
+
+	// Clear and reinitialize maps
+	rn.leaderState.NextIndex = make(map[int]int)
+	rn.leaderState.MatchIndex = make(map[int]int)
 
 	// Initialize nextIndex and matchIndex for all peers
 	for _, peer := range rn.persistentState.Peers {

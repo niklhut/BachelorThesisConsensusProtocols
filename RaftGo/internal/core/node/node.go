@@ -188,12 +188,12 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 	} else if rn.volatileState.State == util.ServerStateCandidate {
 		// Own term and term of leader are the same
 		// If the node is a candidate, it should become a follower
-		rn.becomeFollower(req.Term, &req.LeaderID)
+		rn.becomeFollower(rn.persistentState.CurrentTerm, &req.LeaderID)
 	} else if rn.volatileState.CurrentLeaderID != nil && *rn.volatileState.CurrentLeaderID != req.LeaderID {
 		rn.logger.Info("Received AppendEntries from different leader, becoming follower",
 			slog.Int("leaderID", req.LeaderID),
 		)
-		rn.becomeFollower(req.Term, &req.LeaderID)
+		rn.becomeFollower(rn.persistentState.CurrentTerm, &req.LeaderID)
 	}
 
 	// Reply false if log doesn't contain an entry at prevLogIndex whose term matches prevLogTerm.
@@ -209,12 +209,9 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 			}
 		}
 
-		// prevLogTerm := rn.persistentState.Log[req.PrevLogIndex-1].Term
-		var prevLogTerm int
+		prevLogTerm := rn.persistentState.Snapshot.LastIncludedTerm
 		if req.PrevLogIndex > rn.persistentState.Snapshot.LastIncludedIndex {
 			prevLogTerm = rn.persistentState.Log[req.PrevLogIndex-rn.persistentState.Snapshot.LastIncludedIndex-1].Term
-		} else {
-			prevLogTerm = rn.persistentState.Snapshot.LastIncludedTerm
 		}
 		if prevLogTerm != req.PrevLogTerm {
 			// Term mismatch at the expected previous index
@@ -282,7 +279,7 @@ func (rn *RaftNode) HandleAppendEntries(ctx context.Context, req util.AppendEntr
 				// In this case, we should discard the entire log because our log is inconsistent
 				// with what the leader is sending regarding its snapshot base.
 				rn.logger.Info("Truncating entire log due to conflict detected within or immediately after snapshot range.")
-				rn.persistentState.Log = rn.persistentState.Log[:0]
+				// rn.persistentState.Log = rn.persistentState.Log[:0]
 			}
 		}
 
@@ -336,10 +333,27 @@ func (rn *RaftNode) HandleInstallSnapshot(request util.InstallSnapshotRequest) u
 			slog.Int("leaderID", request.LeaderID),
 		)
 		rn.becomeFollower(request.Term, &request.LeaderID)
+	} else if rn.volatileState.State == util.ServerStateCandidate {
+		// Own term and term of leader are the same
+		// If the node is a candidate, it should become a follower
+		rn.becomeFollower(rn.persistentState.CurrentTerm, &request.LeaderID)
+	} else if rn.volatileState.CurrentLeaderID != nil && *rn.volatileState.CurrentLeaderID != request.LeaderID {
+		rn.logger.Info("Received AppendEntries from different leader, becoming follower",
+			slog.Int("leaderID", request.LeaderID),
+		)
+		rn.becomeFollower(rn.persistentState.CurrentTerm, &request.LeaderID)
 	}
 
 	// Save snapshot
 	oldSnapshotLastIndex := rn.persistentState.Snapshot.LastIncludedIndex
+
+	// TODO: do we do this?
+	if oldSnapshotLastIndex >= request.Snapshot.LastIncludedIndex {
+		return util.InstallSnapshotResponse{
+			Term: rn.persistentState.CurrentTerm,
+		}
+	}
+
 	err := rn.persistentState.Persistence.SaveSnapshot(request.Snapshot, rn.persistentState.OwnPeer.ID)
 	if err != nil {
 		rn.logger.Error("Failed to save snapshot", slog.String("error", err.Error()))

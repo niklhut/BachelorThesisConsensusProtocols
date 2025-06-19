@@ -957,6 +957,10 @@ public actor RaftNode {
         volatileState.state = .leader
         volatileState.currentLeaderID = persistentState.ownPeer.id
 
+        // Clear and reinitialize maps
+        leaderState.nextIndex = [:]
+        leaderState.matchIndex = [:]
+
         // Initialize nextIndex and matchIndex for all peers
         for peer in persistentState.peers {
             leaderState.nextIndex[peer.id] = persistentState.logLength + 1 // Next log index to send to that server

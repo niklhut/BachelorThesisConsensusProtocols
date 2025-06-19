@@ -792,6 +792,7 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 
 	majority := rn.Majority()
 
+	// Create replication tracker with leader pre-marked as successful
 	replicationTracker := util.NewReplicationTracker(majority)
 	rn.logger.Debug("Replicating log entries to peers",
 		slog.Int("majority", majority),
@@ -809,7 +810,16 @@ func (rn *RaftNode) replicateLog(entries []util.LogEntry) error {
 		go func(peer util.Peer) {
 			defer wg.Done()
 
-			err := rn.replicateLogToPeer(ctx, peer, replicationTracker, currentTerm, leaderID, commitIndex, originalLogLength, entries)
+			err := rn.replicateLogToPeer(
+				ctx,
+				peer,
+				replicationTracker,
+				currentTerm,
+				leaderID,
+				commitIndex,
+				originalLogLength,
+				entries,
+			)
 			if err != nil {
 				rn.logger.Error("Failed to replicate to peer",
 					slog.Int("peerId", peer.ID),
@@ -891,25 +901,28 @@ func (rn *RaftNode) replicateLogToPeer(
 		}
 
 		// Determine peer's next index
-		peerNextIndex := rn.leaderState.NextIndex[peer.ID]
-		if peerNextIndex == 0 {
-			peerNextIndex = len(rn.persistentState.Log) + 1
+		peerNextIndex := len(rn.leaderState.NextIndex) + 1
+		if value, exists := rn.leaderState.NextIndex[peer.ID]; exists {
+			peerNextIndex = value
 		}
 
 		// Check if peer needs a snapshot
-		if peerNextIndex <= rn.persistentState.Snapshot.LastIncludedIndex {
+		snapshotLastIncludedIndex := rn.persistentState.Snapshot.LastIncludedIndex
+		if peerNextIndex <= snapshotLastIncludedIndex {
 			rn.releaseLockWithLogger("replicateLogToPeer 2")
 			// Peer is too far behind, send snapshot
 			rn.logger.Info("Peer is too far behind, sending snapshot", "snapshotLastIncludedIndex",
 				slog.Int("peerID", peer.ID),
 				slog.Int("peerNextIndex", peerNextIndex),
-				slog.Int("snapshotLastIncludedIndex", rn.persistentState.Snapshot.LastIncludedIndex),
+				slog.Int("snapshotLastIncludedIndex", snapshotLastIncludedIndex),
 			)
 			rn.sendSnapshotToPeer(peer)
 
+			rn.ackquireLockWithLogger("replicateLogToPeer 3")
 			// After sending snapshot, update nextIndex and matchIndex
-			rn.leaderState.NextIndex[peer.ID] = rn.persistentState.Snapshot.LastIncludedIndex + 1
-			rn.leaderState.MatchIndex[peer.ID] = rn.persistentState.Snapshot.LastIncludedIndex
+			rn.leaderState.NextIndex[peer.ID] = snapshotLastIncludedIndex + 1
+			rn.leaderState.MatchIndex[peer.ID] = snapshotLastIncludedIndex
+			rn.releaseLockWithLogger("replicateLogToPeer 3")
 
 			// Continue to next iteration to try sending append entries from the new nextIndex
 			continue
@@ -1012,7 +1025,8 @@ func (rn *RaftNode) replicateLogToPeer(
 			return nil
 		} else {
 			// Log inconsistency, decrement nextIndex and retry
-			rn.leaderState.NextIndex[peer.ID] = max(1, rn.leaderState.NextIndex[peer.ID]-1)
+			previousNextIndex := rn.leaderState.NextIndex[peer.ID]
+			rn.leaderState.NextIndex[peer.ID] = max(1, previousNextIndex-1)
 			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			retryCount++
 

@@ -68,15 +68,17 @@ func (rn *RaftNode) Majority() int {
 func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftPeerTransport, persistence RaftNodePersistence) *RaftNode {
 	// Initialize persistent state with the provided config
 	persistentState := PersistentState{
-		OwnPeer:      ownPeer,
-		Peers:        peers,
-		Config:       config,
-		CurrentTerm:  0,
-		Log:          []util.LogEntry{},
-		StateMachine: make(map[string]string),
-		Snapshot:     util.Snapshot{},
-		VotedFor:     nil,
-		Persistence:  persistence,
+		OwnPeer:           ownPeer,
+		Peers:             peers,
+		Config:            config,
+		CurrentTerm:       0,
+		Log:               []util.LogEntry{},
+		StateMachine:      make(map[string]string),
+		Snapshot:          util.Snapshot{},
+		VotedFor:          nil,
+		Persistence:       persistence,
+		IsSnapshotting:    false,
+		IsSendingSnapshot: make(map[int]bool),
 	}
 
 	// Initialize volatile state with default values
@@ -1025,8 +1027,7 @@ func (rn *RaftNode) replicateLogToPeer(
 			return nil
 		} else {
 			// Log inconsistency, decrement nextIndex and retry
-			previousNextIndex := rn.leaderState.NextIndex[peer.ID]
-			rn.leaderState.NextIndex[peer.ID] = max(1, previousNextIndex-1)
+			rn.leaderState.NextIndex[peer.ID] = max(1, rn.leaderState.NextIndex[peer.ID]-1)
 			rn.releaseLockWithLogger("replicateLogToPeer 3")
 			retryCount++
 
@@ -1283,7 +1284,7 @@ func (rn *RaftNode) createSnapshot() {
 func (rn *RaftNode) sendSnapshotToPeer(peer util.Peer) {
 	rn.mu.RLock()
 
-	if rn.volatileState.State != util.ServerStateLeader {
+	if rn.volatileState.State != util.ServerStateLeader || rn.persistentState.IsSendingSnapshot[peer.ID] {
 		rn.mu.RUnlock()
 		return
 	}
@@ -1292,6 +1293,9 @@ func (rn *RaftNode) sendSnapshotToPeer(peer util.Peer) {
 	leaderID := rn.persistentState.OwnPeer.ID
 	snapshot := rn.persistentState.Snapshot
 	rn.mu.RUnlock()
+	rn.ackquireLockWithLogger("sendSnapshotToPeer 1")
+	rn.persistentState.IsSendingSnapshot[peer.ID] = true
+	rn.releaseLockWithLogger("sendSnapshotToPeer 1")
 
 	rn.logger.Info("Sending InstallSnapshot RPC to peer",
 		slog.Int("peerID", peer.ID),
@@ -1316,6 +1320,7 @@ func (rn *RaftNode) sendSnapshotToPeer(peer util.Peer) {
 
 	rn.ackquireLockWithLogger("sendSnapshotToPeer 1")
 	defer rn.releaseLockWithLogger("sendSnapshotToPeer 1")
+	rn.persistentState.IsSendingSnapshot[peer.ID] = false
 
 	if response.Term > rn.persistentState.CurrentTerm {
 		rn.logger.Info("Received higher term during InstallSnapshot, becoming follower",

@@ -42,6 +42,8 @@ type PersistentState struct {
 
 	// Whether the node is currently snapshotting
 	IsSnapshotting bool `json:"isSnapshotting"`
+	// Whether the node is currently sending a snapshot
+	IsSendingSnapshot map[int]bool `json:"isSendingSnapshot"`
 	// The persistence of the node
 	Persistence RaftNodePersistence `json:"persistence"`
 }

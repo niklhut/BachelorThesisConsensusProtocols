@@ -10,11 +10,11 @@ import raft.types.Peer
 interface RaftPeerTransport {
     /**
      * Sends an AppendEntries message to the specified peer.
-     * - Parameters:
-     *   - request: The AppendEntries message to send.
-     *   - peer: The peer to send the message to.
-     * - Returns: The response from the peer.
-     * - Throws: An error if the message could not be sent.
+     *
+     * @param request The AppendEntries message to send.
+     * @param peer The peer to send the message to.
+     * @return The response from the peer.
+     * @throws Exception if the message could not be sent.
      */
     @Throws(Exception::class)
     suspend fun appendEntries(
@@ -24,11 +24,11 @@ interface RaftPeerTransport {
 
     /**
      * Sends a RequestVote message to the specified peer.
-     * - Parameters:
-     *   - request: The RequestVote message to send.
-     *   - peer: The peer to send the message to.
-     * - Returns: The response from the peer.
-     * - Throws: An error if the message could not be sent.
+     *
+     * @param request The RequestVote message to send.
+     * @param peer The peer to send the message to.
+     * @return The response from the peer.
+     * @throws Exception if the message could not be sent.
      */
     @Throws(Exception::class)
     suspend fun requestVote(
@@ -38,11 +38,11 @@ interface RaftPeerTransport {
 
     /**
      * Sends an InstallSnapshot message to the specified peer.
-     * - Parameters:
-     *   - request: The InstallSnapshot message to send.
-     *   - peer: The peer to send the message to.
-     * - Returns: The response from the peer.
-     * - Throws: An error if the message could not be sent.
+     *
+     * @param request The InstallSnapshot message to send.
+     * @param peer The peer to send the message to.
+     * @return The response from the peer.
+     * @throws Exception if the message could not be sent.
      */
     @Throws(Exception::class)
     suspend fun installSnapshot(

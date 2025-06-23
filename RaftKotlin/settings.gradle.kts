@@ -11,4 +11,4 @@ plugins {
 }
 
 rootProject.name = "RaftKotlin"
-include("app")
+include("raft-node")

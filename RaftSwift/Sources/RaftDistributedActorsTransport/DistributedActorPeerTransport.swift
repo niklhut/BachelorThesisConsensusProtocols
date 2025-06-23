@@ -4,18 +4,18 @@ import Foundation
 import RaftCore
 
 extension DistributedReception.Key {
-    static var raftNode: DistributedReception.Key<DistributedActorPeerTransport> {
+    static var raftNode: DistributedReception.Key<DistributedActorNodeTransport> {
         "raftNode"
     }
 }
 
 /// A peer transport that uses distributed actors for communication
-distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWatch, PeerDiscovery {
+distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWatch, PeerDiscovery {
     typealias ActorSystem = ClusterSystem
 
     let peers: [Peer]
     var blockedPeerIds: Set<Peer.ID> = []
-    var remoteActors: [Peer: DistributedActorPeerTransport] = [:]
+    var remoteActors: [Peer: DistributedActorNodeTransport] = [:]
     var listingTask: Task<Void, Never>?
 
     /// The node provider
@@ -47,7 +47,7 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
 
     // MARK: - Peer Discovery
 
-    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorPeerTransport {
+    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorNodeTransport {
         guard !blockedPeerIds.contains(peer.id) else {
             actorSystem.log.info("Peer \(peer) is blocked")
             throw RaftDistributedActorError.peerBlocked(peer: peer)
@@ -60,7 +60,7 @@ distributed actor DistributedActorPeerTransport: RaftPeerTransport, LifecycleWat
         return remoteActor
     }
 
-    // MARK: - RaftPeerTransport
+    // MARK: - RaftNodeTransport
 
     func appendEntries(
         _ request: AppendEntriesRequest,

@@ -6,7 +6,7 @@ extension DistributedActorClientTransport: RaftPartitionTransport {
     func blockPeers(
         _ request: RaftTest.BlockPeerRequest,
         at peer: RaftCore.Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -15,7 +15,7 @@ extension DistributedActorClientTransport: RaftPartitionTransport {
 
     func clearBlockedPeers(
         at peer: RaftCore.Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws {
         let remoteActor = try await getRemoteActor(peer)
 
@@ -23,7 +23,7 @@ extension DistributedActorClientTransport: RaftPartitionTransport {
     }
 }
 
-extension DistributedActorPeerTransport {
+extension DistributedActorNodeTransport {
     distributed func blockPeers(
         _ request: RaftTest.BlockPeerRequest,
     ) async throws {

@@ -1,11 +1,11 @@
 import RaftCore
 
-/// GRPC implementation of the RaftPeerTransport protocol.
-final class GRPCPeerTransport: RaftPeerTransport {
+/// GRPC implementation of the RaftNodeTransport protocol.
+final class GRPCNodeTransport: RaftNodeTransport {
     /// The client pool to use for communication with the server.
     let clientPool: GRPCClientPool
 
-    /// Initializes a new instance of the GRPCPeerTransport class.
+    /// Initializes a new instance of the GRPCNodeTransport class.
     /// - Parameters:
     ///   - clientPool: The client pool to use for communication with the server.
     init(clientPool: GRPCClientPool) {
@@ -15,7 +15,7 @@ final class GRPCPeerTransport: RaftPeerTransport {
     func appendEntries(
         _ request: AppendEntriesRequest,
         to peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> AppendEntriesResponse {
         let client = try await clientPool.client(for: peer)
         let peerClient = Raft_RaftPeer.Client(wrapping: client)
@@ -38,7 +38,7 @@ final class GRPCPeerTransport: RaftPeerTransport {
     func requestVote(
         _ request: RequestVoteRequest,
         to peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> RequestVoteResponse {
         let client = try await clientPool.client(for: peer)
         let peerClient = Raft_RaftPeer.Client(wrapping: client)
@@ -59,7 +59,7 @@ final class GRPCPeerTransport: RaftPeerTransport {
     func installSnapshot(
         _ request: InstallSnapshotRequest,
         on peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> InstallSnapshotResponse {
         let client = try await clientPool.client(for: peer)
         let peerClient = Raft_RaftPeer.Client(wrapping: client)

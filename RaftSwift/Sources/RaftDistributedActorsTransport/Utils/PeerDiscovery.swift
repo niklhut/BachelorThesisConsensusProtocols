@@ -6,7 +6,7 @@ protocol PeerDiscovery where Self: LifecycleWatch {
     /// The list of peers
     var peers: [Peer] { get }
     /// The remote actors mapped by peer
-    var remoteActors: [Peer: DistributedActorPeerTransport] { get set }
+    var remoteActors: [Peer: DistributedActorNodeTransport] { get set }
     /// The listing task used to find peers
     var listingTask: Task<Void, Never>? { get set }
 
@@ -17,7 +17,7 @@ protocol PeerDiscovery where Self: LifecycleWatch {
     /// - Parameter peer: The peer
     /// - Returns: The remote actor
     /// - Throws: RaftDistributedActorError.peerNotFound if the remote actor is not found
-    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorPeerTransport
+    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorNodeTransport
 }
 
 extension PeerDiscovery {
@@ -54,7 +54,7 @@ extension PeerDiscovery {
         }
     }
 
-    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorPeerTransport {
+    distributed func getRemoteActor(_ peer: Peer) throws -> DistributedActorNodeTransport {
         guard let remoteActor = remoteActors[peer] else {
             throw RaftDistributedActorError.peerNotFound(peer: peer)
         }

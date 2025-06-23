@@ -26,7 +26,7 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
             settings.downingStrategy = .timeout(.default)
         }
 
-        let transport = DistributedActorPeerTransport(nodeProvider: { node }, peers: peers, actorSystem: actorSystem)
+        let transport = DistributedActorNodeTransport(nodeProvider: { node }, peers: peers, actorSystem: actorSystem)
 
         node = RaftNode(
             ownPeer,

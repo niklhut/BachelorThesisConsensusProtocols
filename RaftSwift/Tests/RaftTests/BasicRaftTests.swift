@@ -35,9 +35,9 @@ struct BasicRaftTests: Sendable {
         for peer in peers {
             let node = RaftNode(
                 peer,
-                peers: peers.filter { $0.id != peer.id }, config: RaftConfig(), transport: GRPCPeerTransport(clientPool: GRPCClientPool(interceptors: [
+                peers: peers.filter { $0.id != peer.id }, config: RaftConfig(), transport: GRPCNodeTransport(clientPool: GRPCClientPool(interceptors: [
                     ServerIDInjectionInterceptor(peerID: peer.id),
-                ]))
+                ])),
             )
             nodes.append(node)
             let interceptor = NetworkPartitionInterceptor(logger: logger)
@@ -48,10 +48,10 @@ struct BasicRaftTests: Sendable {
             let server = GRPCServer(
                 transport: .http2NIOPosix(
                     address: .ipv4(host: peer.address, port: Int(peer.port)),
-                    transportSecurity: .plaintext
+                    transportSecurity: .plaintext,
                 ),
                 services: [peerService, clientService],
-                interceptors: [interceptor]
+                interceptors: [interceptor],
             )
             servers.append(server)
         }
@@ -131,7 +131,7 @@ struct BasicRaftTests: Sendable {
         try await withGRPCClient(
             transport: .http2NIOPosix(
                 target: peer.target,
-                transportSecurity: .plaintext
+                transportSecurity: .plaintext,
             ),
         ) { client in
             let peerClient = Raft_RaftClient.Client(wrapping: client)
@@ -150,7 +150,7 @@ struct BasicRaftTests: Sendable {
     func partition(
         _ array: [some Any],
         groupOneSize: Int,
-        ensureInGroupOne indices: Int...
+        ensureInGroupOne indices: Int...,
     ) throws -> (groupOneIndices: [Int], groupTwoIndices: [Int]) {
         // Validate inputs
         for index in indices {
@@ -192,7 +192,7 @@ struct BasicRaftTests: Sendable {
     // MARK: - Tests
 
     @Test("Leader election")
-    func testLeaderElection() async throws {
+    func leaderElection() async throws {
         // Verify there is exactly one leader
         let leaders = try await withThrowingTaskGroup(of: Bool.self) { group in
             for peer in peers {
@@ -214,7 +214,7 @@ struct BasicRaftTests: Sendable {
     }
 
     @Test("Log replication")
-    func testLogReplication() async throws {
+    func logReplication() async throws {
         // Find the leader
         let leader = try await findLeader()
 
@@ -242,7 +242,7 @@ struct BasicRaftTests: Sendable {
     }
 
     @Test("Leader failover")
-    func testLeaderFailover() async throws {
+    func leaderFailover() async throws {
         // Find the leader
         let originalLeaderIndex = try await findLeaderIndex()
 
@@ -284,7 +284,7 @@ struct BasicRaftTests: Sendable {
     }
 
     @Test("Term propagation")
-    mutating func testTermPropagation() async throws {
+    mutating func termPropagation() async throws {
         // Find the current leader
         let leaderIndex = try await findLeaderIndex()
 
@@ -330,7 +330,7 @@ struct BasicRaftTests: Sendable {
     }
 
     @Test("Network partition - majority side still operates")
-    mutating func testNetworkPartition() async throws {
+    mutating func networkPartition() async throws {
         // Find the leader
         let leaderIndex = try await findLeaderIndex()
 

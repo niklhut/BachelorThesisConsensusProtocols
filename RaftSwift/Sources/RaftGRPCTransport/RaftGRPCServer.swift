@@ -23,7 +23,7 @@ public final class RaftGRPCServer: RaftNodeApplication {
             ownPeer,
             peers: peers,
             config: RaftConfig(),
-            transport: GRPCPeerTransport(clientPool: GRPCClientPool(interceptors: [
+            transport: GRPCNodeTransport(clientPool: GRPCClientPool(interceptors: [
                 ServerIDInjectionInterceptor(peerID: ownPeer.id),
             ])),
             persistence: persistence,

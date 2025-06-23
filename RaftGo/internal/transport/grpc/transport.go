@@ -10,18 +10,18 @@ import (
 	"github.com/niklhut/raft_go/internal/transport/grpc/proto"
 )
 
-type grpcRaftPeerTransport struct {
+type grpcRaftNodeTransport struct {
 	clientPool *GRPCClientPool
 }
 
-func NewGRPCRaftPeerTransport(clientPool *GRPCClientPool) *grpcRaftPeerTransport {
-	return &grpcRaftPeerTransport{
+func NewGRPCRaftNodeTransport(clientPool *GRPCClientPool) *grpcRaftNodeTransport {
+	return &grpcRaftNodeTransport{
 		clientPool: clientPool,
 	}
 }
 
-// AppendEntries implements RaftPeerTransport.AppendEntries
-func (t *grpcRaftPeerTransport) AppendEntries(
+// AppendEntries implements RaftNodeTransport.AppendEntries
+func (t *grpcRaftNodeTransport) AppendEntries(
 	ctx context.Context,
 	req util.AppendEntriesRequest,
 	to util.Peer,
@@ -60,8 +60,8 @@ func (t *grpcRaftPeerTransport) AppendEntries(
 	}, nil
 }
 
-// RequestVote implements RaftPeerTransport.RequestVote
-func (t *grpcRaftPeerTransport) RequestVote(
+// RequestVote implements RaftNodeTransport.RequestVote
+func (t *grpcRaftNodeTransport) RequestVote(
 	ctx context.Context,
 	req util.RequestVoteRequest,
 	to util.Peer,
@@ -89,8 +89,8 @@ func (t *grpcRaftPeerTransport) RequestVote(
 	}, nil
 }
 
-// InstallSnapshot implements RaftPeerTransport.InstallSnapshot
-func (t *grpcRaftPeerTransport) InstallSnapshot(
+// InstallSnapshot implements RaftNodeTransport.InstallSnapshot
+func (t *grpcRaftNodeTransport) InstallSnapshot(
 	ctx context.Context,
 	req util.InstallSnapshotRequest,
 	to util.Peer,

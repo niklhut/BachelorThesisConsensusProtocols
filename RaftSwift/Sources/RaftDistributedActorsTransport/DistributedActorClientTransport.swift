@@ -6,7 +6,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
     typealias ActorSystem = ClusterSystem
 
     let peers: [Peer]
-    var remoteActors: [Peer: DistributedActorPeerTransport] = [:]
+    var remoteActors: [Peer: DistributedActorNodeTransport] = [:]
     var listingTask: Task<Void, Never>?
 
     /// Initializes the client transport
@@ -82,7 +82,7 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
     }
 }
 
-extension DistributedActorPeerTransport {
+extension DistributedActorNodeTransport {
     distributed func get(
         _ request: GetRequest,
     ) async -> GetResponse {

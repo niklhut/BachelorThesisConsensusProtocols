@@ -1,6 +1,6 @@
 /// Abstraction over transport layer for Raft peers.
 /// This allows for different transport layers to be used, e.g. GRPC or Swift Distributed Actors.
-public protocol RaftPeerTransport: Sendable {
+public protocol RaftNodeTransport: Sendable {
     /// Sends an AppendEntries message to the specified peer.
     /// - Parameters:
     ///   - request: The AppendEntries message to send.
@@ -11,7 +11,7 @@ public protocol RaftPeerTransport: Sendable {
     func appendEntries(
         _ request: AppendEntriesRequest,
         to peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> AppendEntriesResponse
 
     /// Sends a RequestVote message to the specified peer.
@@ -24,7 +24,7 @@ public protocol RaftPeerTransport: Sendable {
     func requestVote(
         _ request: RequestVoteRequest,
         to peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> RequestVoteResponse
 
     /// Sends an InstallSnapshot message to the specified peer.
@@ -37,6 +37,6 @@ public protocol RaftPeerTransport: Sendable {
     func installSnapshot(
         _ request: InstallSnapshotRequest,
         on peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> InstallSnapshotResponse
 }

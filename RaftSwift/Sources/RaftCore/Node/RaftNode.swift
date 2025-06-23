@@ -5,7 +5,7 @@ public actor RaftNode {
     // MARK: - Properties
 
     /// The transport layer for peer-to-peer communication.
-    private let transport: any RaftPeerTransport
+    private let transport: any RaftNodeTransport
     /// The logger for logging messages.
     let logger: Logger
 
@@ -33,7 +33,7 @@ public actor RaftNode {
     ///   - peers: The list of peers.
     ///   - config: The configuration.
     ///   - transport: The transport layer.
-    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftPeerTransport, persistence: any RaftNodePersistence) {
+    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftNodeTransport, persistence: any RaftNodePersistence) {
         self.transport = transport
         let newLogger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
         logger = newLogger

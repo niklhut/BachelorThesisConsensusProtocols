@@ -45,7 +45,7 @@ func (s *RaftGRPCServer) Serve(ctx context.Context) error {
 		[]grpc.UnaryClientInterceptor{serverIDInterceptor.UnaryClientInterceptor()},
 		[]grpc.StreamClientInterceptor{serverIDInterceptor.StreamClientInterceptor()},
 	)
-	transport := NewGRPCRaftPeerTransport(clientPool)
+	transport := NewGRPCRaftNodeTransport(clientPool)
 
 	config := util.NewRaftConfig()
 	raftNode := node.NewRaftNode(s.ownPeer, s.peers, config, transport, s.persistence)

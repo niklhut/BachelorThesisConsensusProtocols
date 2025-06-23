@@ -16,8 +16,8 @@ import (
 	"github.com/niklhut/raft_go/internal/core/util"
 )
 
-// RaftPeerTransport defines the interface for peer-to-peer communication.
-type RaftPeerTransport interface {
+// RaftNodeTransport defines the interface for peer-to-peer communication.
+type RaftNodeTransport interface {
 	AppendEntries(
 		ctx context.Context,
 		request util.AppendEntriesRequest,
@@ -43,7 +43,7 @@ type RaftPeerTransport interface {
 type RaftNode struct {
 	mu sync.RWMutex // Mutex to protect the node's state
 
-	transport RaftPeerTransport // An interface for peer communication
+	transport RaftNodeTransport // An interface for peer communication
 	logger    *slog.Logger      // Structured logger
 
 	heartbeatCancel context.CancelFunc
@@ -65,7 +65,7 @@ func (rn *RaftNode) Majority() int {
 
 // NewRaftNode creates and initializes a new RaftNode.
 // This is the Go constructor function.
-func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftPeerTransport, persistence RaftNodePersistence) *RaftNode {
+func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftNodeTransport, persistence RaftNodePersistence) *RaftNode {
 	// Initialize persistent state with the provided config
 	persistentState := PersistentState{
 		OwnPeer:           ownPeer,

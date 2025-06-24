@@ -7,7 +7,7 @@ data class RaftConfig(
     /**
      * The range of election timeout in milliseconds
      */
-    val electionTimeoutRange: ClosedRange<Int> = 300 .. 600,
+    val electionTimeoutRange: IntRange = 300 .. 600,
     /**
      * The interval of heartbeats in milliseconds
      */

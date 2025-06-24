@@ -31,6 +31,8 @@ dependencies {
     implementation(libs.guava)
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.slf4j:slf4j-api:2.0.13")
+    implementation("org.slf4j:slf4j-simple:2.0.13")
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

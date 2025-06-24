@@ -7,9 +7,9 @@ data class LeaderState(
     /**
      * For each follower, index of the next log entry to send to that follower
      */
-    val nextIndex: MutableMap<Int, Int> = mutableMapOf(),
+    var nextIndex: MutableMap<Int, Int> = mutableMapOf(),
     /**
      * For each follower, index of highest log entry known to be replicated on that follower
      */
-    val matchIndex: MutableMap<Int, Int> = mutableMapOf()
+    var matchIndex: MutableMap<Int, Int> = mutableMapOf()
 )

@@ -10,19 +10,23 @@ data class PersistentState(
     /**
      * Latest term server has seen (initialized to 0)
      */
-    val currentTerm: Int,
+    var currentTerm: Int = 0,
     /**
      * Candidate ID that received vote in current term (or null)
      */
-    val votedFor: Int?
+    var votedFor: Int? = null,
     /**
      * Log entries, each containing a command for the state machine
      */
     val log: MutableList<LogEntry> = mutableListOf(),
     /**
+     * State machine state
+     */
+    var stateMachine: Map<String, String> = mapOf(),
+    /**
      * Latest snapshot of the state machine
      */
-    val snapshot: Snapshot = Snapshot(),
+    var snapshot: Snapshot = Snapshot(),
     /**
      * The self peer config
      */
@@ -38,7 +42,7 @@ data class PersistentState(
     /**
      * Whether the node is currently snapshotting
      */
-    val isSnapshotting: Boolean = false,
+    var isSnapshotting: Boolean = false,
     /**
      * The persistence of the node
      */

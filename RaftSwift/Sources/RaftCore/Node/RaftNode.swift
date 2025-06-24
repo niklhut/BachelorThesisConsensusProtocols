@@ -216,6 +216,10 @@ public actor RaftNode {
         )
     }
 
+    /// Handles an InstallSnapshot RPC.
+    ///
+    /// - Parameter request: The InstallSnapshotRequest to handle.
+    /// - Returns: The InstallSnapshotResponse.
     public func installSnapshot(request: InstallSnapshotRequest) async throws -> InstallSnapshotResponse {
         logger.trace("Received snapshot to install from \(request.leaderID)")
         resetElectionTimer()

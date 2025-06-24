@@ -377,7 +377,7 @@ func (rn *RaftNode) HandleInstallSnapshot(request util.InstallSnapshotRequest) u
 			rn.logger.Info("Kept log entries after installing snapshot",
 				slog.Int("logIndex", logIndex),
 			)
-			rn.persistentState.Log = rn.persistentState.Log[:logIndex]
+			rn.persistentState.Log = rn.persistentState.Log[logIndex:]
 		} else {
 			rn.logger.Info("Discarded entire log due to conflict")
 			rn.persistentState.Log = rn.persistentState.Log[:0]

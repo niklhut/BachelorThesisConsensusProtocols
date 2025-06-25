@@ -5,12 +5,20 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.cancel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import raft.node.RaftNodePersistence
 import raft.node.RaftPeerTransport
 import raft.types.*
 import raft.types.peer.*
+import raft.types.client.*
+import kotlin.time.Duration.Companion.milliseconds
+import kotlin.time.Duration
 
 class RafTNode(
         private val ownPeer: Peer,
@@ -299,6 +307,183 @@ class RafTNode(
 
     // endregion
 
+    // region Client RPCs
+
+    /**
+     * Handles a Put RPC.
+     *
+     * @param request The PutRequest to handle.
+     * @return The PutResponse.
+     */
+    public suspend fun put(request: PutRequest): PutResponse {
+        mutex.readLock().lock()
+        if (volatileState.state != ServerState.LEADER) {
+            mutex.readLock().unlock()
+            return PutResponse(
+                    success = false,
+                    leaderHint = persistentState.peers.firstOrNull { it.id == volatileState.currentLeaderID }
+            )
+        }
+        val term = persistentState.currentTerm
+        mutex.readLock().unlock()
+
+        replicateLog(entries = listOf(LogEntry(term = term, key = request.key, value = request.value)))
+
+        return PutResponse(success = true)
+    }
+
+    /**
+     * Handles a Get RPC.
+     *
+     * @param request The GetRequest to handle.
+     * @return The GetResponse.
+     */
+    public suspend fun get(request: GetRequest): GetResponse {
+        mutex.readLock().withLock {
+            if (volatileState.state != ServerState.LEADER) {
+                val leaderHint = persistentState.peers.firstOrNull { it.id == volatileState.currentLeaderID }
+                return GetResponse(leaderHint = leaderHint)
+            }
+            return GetResponse(value = persistentState.stateMachine[request.key])
+        }
+    }
+
+    /**
+     * Handles a GetDebug RPC.
+     *
+     * @param request The GetRequest to handle.
+     * @return The GetResponse.
+     */
+    public suspend fun getDebug(request: GetRequest): GetResponse {
+        mutex.readLock().withLock {
+            val value = persistentState.stateMachine[request.key]
+            return GetResponse(value = value)
+        }
+    }
+
+    /**
+     * Handles a GetState RPC.
+     *
+     * @return The ServerStateResponse.
+     */
+    public suspend fun getState(): ServerStateResponse {
+        mutex.readLock().withLock {
+            return ServerStateResponse(
+                id = persistentState.ownPeer.id,
+                state = volatileState.state,
+            )
+        }
+    }
+
+    /**
+     * Handles a GetTerm RPC.
+     *
+     * @return The GetTermResponse.
+     */
+    public suspend fun getTerm(): ServerTermResponse {
+        mutex.readLock().withLock {
+            return ServerTermResponse(
+                id = persistentState.ownPeer.id,
+                term = persistentState.currentTerm,
+            )
+        }
+    }
+
+    /**
+     * Handles a GetImplementationVersion RPC.
+     *
+     * @return The ImplementationVersionResponse.
+     */
+    public suspend fun getImplementationVersion(): ImplementationVersionResponse {
+        mutex.readLock().withLock {
+            return ImplementationVersionResponse(
+                id = persistentState.ownPeer.id,
+                implementation = "Kotlin",
+                version = "1.3.0",
+            )
+        }
+    }
+
+    // endregion
+
+    // region Node Lifecycle
+
+    /**
+     * Starts the node.
+     */
+    public suspend fun start() {
+        loadSnapshotOnStartup()
+        startHeartbeatTask()
+    }
+
+    /**
+     * Shuts down the node.
+     */
+    public suspend fun shutdown() {
+        heartbeatJob?.cancel()
+        scope.cancel()
+    }
+
+    /**
+     * Starts the heartbeat task.
+     */
+    private fun startHeartbeatTask() {
+        // Cancel existing task if it exists
+        heartbeatJob?.cancel()
+
+        mutex.readLock().lock()
+        val heartbeatInterval = persistentState.config.heartbeatInterval.milliseconds
+        mutex.readLock().unlock()
+
+        heartbeatJob = scope.launch {
+            while (currentCoroutineContext().job.isActive) {
+                try {
+                    val timeout: Duration
+                    val action: suspend () -> Unit
+
+                    mutex.readLock().lock()
+                    val state = volatileState.state
+                    mutex.readLock().unlock()
+
+                    if (state == ServerState.LEADER) {
+                        timeout = heartbeatInterval
+                        action = ::sendHeartbeat
+                    } else {
+                        timeout = heartbeatInterval * 3
+                        action = ::checkElectionTimeout
+                    }
+
+                    val actionJob = launch { action() }
+
+                    delay(timeout)
+                    actionJob.cancel()
+
+                } catch (e: Exception) {
+                    logger.error("Heartbeat task failed: $e")
+                    continue
+                }
+            }
+        }
+    }
+
+    /**
+     * Sends a heartbeat to all followers.
+     */
+    private suspend fun sendHeartbeat() {
+        mutex.readLock().lock()
+        val state = volatileState.state
+        mutex.readLock().unlock()
+
+        if (state != ServerState.LEADER) {
+            throw RaftError.NotLeader
+        }
+
+        logger.trace("Sending heartbeat to followers")
+        replicateLog(emptyList())
+    }
+
+    // endregion
+
     // region Election
 
     /** Resets the election timer. */
@@ -434,6 +619,323 @@ class RafTNode(
         }
     }
 
+    // endregion
+
+    // region Log Replication
+
+    /**
+     * Replicates log entries to all peers.
+     *
+     * @param entries The log entries to replicate.
+     */
+    private suspend fun replicateLog(entries: List<LogEntry>) {
+        mutex.writeLock().lock()
+
+        if (volatileState.state != ServerState.LEADER) {
+            logger.info("Not a leader, not replicating log")
+            mutex.writeLock().unlock()
+            return
+        }
+
+        resetElectionTimer()
+
+        val currentTerm = persistentState.currentTerm
+        val leaderID = persistentState.ownPeer.id
+        val peers = persistentState.peers
+        val commitIndex = volatileState.commitIndex
+        val originalLogLength = persistentState.log.size
+        val majority = majority
+
+        // Add log entries to log
+        persistentState.log.addAll(entries)
+        mutex.writeLock().unlock()
+
+        // Create replication tracker with leader pre-marked as successful
+        val replicationTracker = ReplicationTracker(majority)
+        logger.trace("Replicating log entries to peers, majority: $majority, entries: $entries")
+        replicationTracker.markSuccess(leaderID)
+
+        scope.launch {
+            coroutineScope {
+                for (peer in peers) {
+                    launch {
+                        replicateLogToPeer(
+                                peer = peer,
+                                replicationTracker = replicationTracker,
+                                currentTerm = currentTerm,
+                                leaderID = leaderID,
+                                commitIndex = commitIndex,
+                                originalLogLength = originalLogLength,
+                                entries = entries,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Wait for majority to have replicated the log before returning
+        replicationTracker.waitForMajority()
+        logger.trace("Majority of peers have replicated the log")
+
+        // Once majority has replicated the log, update commit index
+        // and apply committed entries
+        if (volatileState.state == ServerState.LEADER && persistentState.currentTerm == currentTerm) {
+            updateCommitIndexAndApply()
+        }
+    }
+
+    /**
+     * Replicates log entries to a single peer.
+     *
+     * @param peer The peer to replicate the log to.
+     * @param replicationTracker The replication tracker.
+     * @param currentTerm The current term.
+     * @param leaderID The leader ID.
+     * @param commitIndex The commit index.
+     * @param originalLogLength The original log length.
+     * @param entries The log entries to replicate.
+     */
+    private suspend fun replicateLogToPeer(
+        peer: Peer,
+        replicationTracker: ReplicationTracker,
+        currentTerm: Int,
+        leaderID: Int,
+        commitIndex: Int,
+        originalLogLength: Int,
+        entries: List<LogEntry>,
+    ) {
+        var retryCount = 0
+        val targetEndIndex = originalLogLength + entries.size
+
+        while (!currentCoroutineContext().job.isCancelled) {
+            mutex.writeLock().withLock {
+                // Check conditions for continuing
+                if (volatileState.state != ServerState.LEADER ||
+                        persistentState.currentTerm != currentTerm ||
+                        persistentState.peers.none { it.id == peer.id }) {
+                    return
+                }
+            }
+
+            // Check if already successful
+            if (replicationTracker.isSuccessful(peer.id)) {
+                return
+            }
+
+            mutex.writeLock().lock()
+            val currentMatchIndex = leaderState.matchIndex[peer.id]
+            if (currentMatchIndex != null && currentMatchIndex > targetEndIndex) {
+                mutex.writeLock().unlock()
+                replicationTracker.markSuccess(peer.id)
+                return
+            }
+
+            // Determine peer's next index
+            val peerNextIndex = leaderState.nextIndex[peer.id] ?: persistentState.snapshot.lastIncludedIndex + 1
+
+            // Check if peer needs a snapshot
+            if (peerNextIndex <= persistentState.snapshot.lastIncludedIndex) {
+                mutex.writeLock().unlock()
+                // Peer is too far behind, send snapshot
+                logger.info("Peer ${peer.id} is too far behind (nextIndex: ${peerNextIndex}), sending snapshot. Snapshot last included index: ${persistentState.snapshot.lastIncludedIndex}")
+
+                sendSnapshotToPeer(peer)
+
+                mutex.writeLock().withLock {
+                    // After sending snapshot, update nextIndex and matchIndex
+                    leaderState.nextIndex[peer.id] = persistentState.snapshot.lastIncludedIndex + 1
+                    leaderState.matchIndex[peer.id] = persistentState.snapshot.lastIncludedIndex
+                }
+
+                // Continue to next iteration to try sending append entries from the new nextIndex
+                continue
+            }
+
+            try {
+                // Calculate entries to send
+                val entriesToSend: List<LogEntry>
+                if (peerNextIndex <= originalLogLength) {
+                    // Peer needs entries from the original log (catch-up scenario)
+                    val startIndex = peerNextIndex - persistentState.snapshot.lastIncludedIndex - 1
+                    entriesToSend = persistentState.log.subList(startIndex, persistentState.log.size)
+                } else if (peerNextIndex == originalLogLength + 1) {
+                    // Peer is up-to-date with original log, send only new entries
+                    entriesToSend = entries
+                } else {
+                    // Peer's nextIndex is beyond what we expect - this shouldn't happen
+                    // Reset nextIndex and retry
+                    logger.warn("Peer ${peer.id} has nextIndex $peerNextIndex which is beyond what we expect (originalLogLength: $originalLogLength)")
+                    leaderState.nextIndex[peer.id] = originalLogLength + 1
+                    continue
+                }
+
+                val peerPrevLogIndex = peerNextIndex - 1
+                val peerPrevLogTerm = if (peerPrevLogIndex > persistentState.snapshot.lastIncludedIndex) {
+                    persistentState.log[peerPrevLogIndex - persistentState.snapshot.lastIncludedIndex - 1].term
+                } else {
+                    persistentState.snapshot.lastIncludedTerm
+                }
+
+                mutex.writeLock().unlock()
+
+                logger.trace("Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}")
+
+                val appendEntriesRequest = AppendEntriesRequest(
+                    term = currentTerm,
+                    leaderId = leaderID,
+                    prevLogIndex = peerPrevLogIndex,
+                    prevLogTerm = peerPrevLogTerm,
+                    entries = entriesToSend,
+                    leaderCommit = commitIndex,
+                )
+
+                val result = transport.appendEntries(appendEntriesRequest, peer)
+
+                if (currentCoroutineContext().job.isCancelled) {
+                    return
+                }
+
+                mutex.writeLock().lock()
+
+                if (result.term > persistentState.currentTerm) {
+                    logger.info("Received higher term ${result.term}, becoming follower of ${peer.id}")
+                    becomeFollower(newTerm = result.term, currentLeaderId = peer.id)
+                    mutex.writeLock().unlock()
+                    return
+                }
+
+                if (result.success) {
+                    replicationTracker.markSuccess(peer.id)
+                    logger.trace("Append entries successful for peer ${peer.id}")
+
+                    val newMatchIndex = peerPrevLogIndex + entriesToSend.size
+                    leaderState.matchIndex[peer.id] = newMatchIndex
+                    leaderState.nextIndex[peer.id] = newMatchIndex + 1
+
+                    mutex.writeLock().unlock()
+                    return
+                } else {
+                    // Log inconsistency, decrement nextIndex and retry
+                    leaderState.nextIndex[peer.id] = maxOf(1, leaderState.nextIndex[peer.id] ?: 1 - 1)
+                    mutex.writeLock().unlock()
+
+                    retryCount += 1
+                    logger.info("Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}")
+
+                    // Wait before retrying with exponential backoff
+                    delay(100L * minOf(64, 1 shl retryCount))
+                }
+            } catch (e: Exception) {
+                val errorMessage = "Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}"
+                if (retryCount == 0) {
+                    logger.error(errorMessage)
+                } else {
+                    logger.trace(errorMessage)
+                }
+                retryCount++
+
+                // Wait before retrying with exponential backoff
+                delay(100L * minOf(64, 1 shl retryCount))
+            }
+        }
+    }
+
+    /**
+     * Updates the commit index and applies the committed entries to the state machine.
+     */
+    private suspend fun updateCommitIndexAndApply() {
+        mutex.readLock().lock()
+
+        if (volatileState.state != ServerState.LEADER) {
+            mutex.readLock().unlock()
+            return
+        }
+
+        // Add own match index (implicitly the end of the log)
+        val allMatchIndices = mutableMapOf<Int, Int>()
+        allMatchIndices.putAll(leaderState.matchIndex)
+        allMatchIndices[persistentState.ownPeer.id] = persistentState.logLength
+
+        mutex.readLock().unlock()
+
+        // Calculate new commit index based on majority match indices
+        val indices = allMatchIndices.values.toList().sortedDescending()
+        val majorityIndex = indices[majority - 1]
+
+        mutex.writeLock().withLock {
+            // Only update commit index if it's in the current term
+            val oldCommitIndex = volatileState.commitIndex
+
+            // Start from the majority index and work backwards to find the highest
+            // committable index in the current term
+            for (newCommitIndex in majorityIndex downTo oldCommitIndex + 1) {
+                // Check if this index is within the snapshot range
+                if (newCommitIndex <= persistentState.snapshot.lastIncludedIndex) {
+                    // This index is covered by the snapshot, so it's already committed
+                    // Don't update commitIndex as it should already be at least this value
+                    break
+                }
+
+                // Calculate the array index in the current log
+                val logArrayIndex = newCommitIndex - persistentState.snapshot.lastIncludedIndex - 1
+
+                // Ensure the index is within bounds of the current log
+                if (logArrayIndex >= 0 && logArrayIndex < persistentState.log.size) {
+                    val entry = persistentState.log[logArrayIndex]
+                    // Only commit entries from the current term for safety
+                    if (entry.term == persistentState.currentTerm) {
+                        volatileState.commitIndex = newCommitIndex
+                        logger.trace("Updated commit index from $oldCommitIndex to $newCommitIndex")
+                        break
+                    }
+                    // If the entry is from an older term, continue checking lower indices
+                } else {
+                    // Index is out of bounds - this shouldn't happen with correct logic
+                    logger.warn("Calculated newCommitIndex $newCommitIndex is out of bounds for log (length: ${persistentState.log.size}, snapshot last index: ${persistentState.snapshot.lastIncludedIndex})")
+                }
+            }
+
+            applyCommittedEntries()
+        }
+    }
+
+    /**
+     * Applies the committed entries to the state machine.
+     */
+    private fun applyCommittedEntries() {
+        while (volatileState.lastApplied < volatileState.commitIndex) {
+            val nextApplyIndex = volatileState.lastApplied + 1
+
+            if (nextApplyIndex <= persistentState.snapshot.lastIncludedIndex) {
+                volatileState.lastApplied = nextApplyIndex
+                continue
+            }
+
+            val logArrayIndex = nextApplyIndex - persistentState.snapshot.lastIncludedIndex - 1
+
+            if (logArrayIndex >= 0 && logArrayIndex < persistentState.log.size) {
+                val entry = persistentState.log[logArrayIndex]
+
+                if (entry.key != null) {
+                    val oldValue = persistentState.stateMachine[entry.key]
+                    persistentState.stateMachine[entry.key!] = entry.value
+                    logger.trace("Applied entry at index $nextApplyIndex: ${entry.key} = ${entry.value} (was: $oldValue)")
+                }
+
+                volatileState.lastApplied += 1
+            } else {
+                logger.warn("Cannot apply entry at index $nextApplyIndex: log array index $logArrayIndex is out of bounds (log size: ${persistentState.log.size}, snapshot last index: ${persistentState.snapshot.lastIncludedIndex})")
+                break
+            }
+        }
+
+        if (shouldCreateSnapshot()) {
+            scope.launch {
+                createSnapshot()
+            }
+        }
+    }
+
     /**
      * Checks if the log is at least as up to date as the given log.
      *
@@ -455,11 +957,150 @@ class RafTNode(
 
     // endregion
 
-    // region Log Replication
-
-    // endregion
-
     // region Snapshotting
+
+    /**
+     * Loads the snapshot on startup of the node.
+     */
+    private suspend fun loadSnapshotOnStartup() {
+        try {
+            mutex.writeLock().withLock {
+            val snapshot = persistentState.persistence.loadSnapshot(persistentState.ownPeer.id)
+            if (snapshot != null) {
+                persistentState.snapshot = snapshot
+                persistentState.currentTerm = snapshot.lastIncludedTerm
+                persistentState.stateMachine = snapshot.stateMachine
+                volatileState.commitIndex = snapshot.lastIncludedIndex
+                volatileState.lastApplied = snapshot.lastIncludedIndex
+                logger.info("Successfully loaded snapshot up to index ${snapshot.lastIncludedIndex}.")
+            }
+        }
+        } catch (e: Exception) {
+            logger.error("Failed to load snapshot: ${e.message}")
+        }
+    }
+
+    /**
+     * Checks if a snapshot should be created.
+     *
+     * @return True if a snapshot should be created, false otherwise.
+     */
+    private fun shouldCreateSnapshot(): Boolean {
+        mutex.readLock().withLock {
+            if (persistentState.persistence.compactionThreshold <= 0) {
+                return false
+            }
+
+            return (volatileState.commitIndex - persistentState.snapshot.lastIncludedIndex) >= persistentState.persistence.compactionThreshold && !persistentState.isSnapshotting
+        }
+    }
+
+    /**
+     * Creates a snapshot of the state machine.
+     */
+    private suspend fun createSnapshot() {
+        mutex.writeLock().withLock {
+            if (persistentState.isSnapshotting) {
+                return
+            }
+
+            persistentState.isSnapshotting = true
+
+            val snapshotLastIndex = volatileState.commitIndex
+            if (snapshotLastIndex <= persistentState.snapshot.lastIncludedIndex) {
+                persistentState.isSnapshotting = false
+                return
+            }
+
+            val lastCommittedArrayIndex = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
+            if (lastCommittedArrayIndex < 0 || lastCommittedArrayIndex >= persistentState.log.size) {
+                persistentState.isSnapshotting = false
+                return
+            }
+
+            val snapshotLastTerm = persistentState.log[lastCommittedArrayIndex].term
+
+            // Deep copy the state machine to avoid concurrent access
+            val stateMachineCopy = mutableMapOf<String, String>()
+            stateMachineCopy.putAll(persistentState.stateMachine)
+
+            val snapshot = Snapshot(
+                lastIncludedIndex = snapshotLastIndex,
+                lastIncludedTerm = snapshotLastTerm,
+                stateMachine = stateMachineCopy,
+            )
+
+            val ownId = persistentState.ownPeer.id
+
+            mutex.writeLock().unlock()
+            persistentState.persistence.saveSnapshot(snapshot, ownId)
+            mutex.writeLock().lock()
+
+            persistentState.snapshot = snapshot
+
+            // Truncate the log after saving snapshot
+            val entriesToKeep = lastCommittedArrayIndex + 1
+            persistentState.log.subList(0, entriesToKeep).clear()
+
+            persistentState.isSnapshotting = false
+
+            logger.info("Successfully created snapshot", "lastIncludedIndex" to snapshotLastIndex, "lastIncludedTerm" to snapshotLastTerm)
+        }
+    }
+
+    /**
+     * Sends a snapshot to a specific peer.
+     *
+     * @param peer The peer to send the snapshot to.
+     */
+    private suspend fun sendSnapshotToPeer(peer: Peer) {
+        mutex.readLock().lock()
+
+        if (volatileState.state != ServerState.LEADER || persistentState.isSendingSnapshot[peer.id] == true) {
+            mutex.readLock().unlock()
+            return
+        }
+
+        val currentTerm = persistentState.currentTerm
+        val leaderId = persistentState.ownPeer.id
+        val snapshot = persistentState.snapshot
+        mutex.readLock().unlock()
+        mutex.writeLock().lock()
+        persistentState.isSendingSnapshot[peer.id] = true
+        mutex.writeLock().unlock()
+
+        logger.info("Sending InstallSnapshot RPC to $peer.id (snapshot last index: ${snapshot.lastIncludedIndex}, last term: ${snapshot.lastIncludedTerm})")
+
+        val request = InstallSnapshotRequest(
+            term = currentTerm,
+            leaderId = leaderId,
+            snapshot = snapshot,
+        )
+
+        try {
+            val response = transport.installSnapshot(request, peer)
+
+            mutex.writeLock().withLock {
+                persistentState.isSendingSnapshot[peer.id] = false
+
+                if (response.term > persistentState.currentTerm) {
+                    logger.info("Received higher term ${response.term}, becoming follower of ${peer.id}")
+                    becomeFollower(response.term, peer.id)
+                    return
+                }
+
+                // Upon successful installation, update matchIndex and nextIndex for the peer
+                leaderState.matchIndex[peer.id] = snapshot.lastIncludedIndex
+                leaderState.nextIndex[peer.id] = snapshot.lastIncludedIndex + 1
+                logger.info("Successfully sent snapshot to $peer.id. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?? 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?? 0}")
+            }
+        } catch (e: Exception) {
+            logger.error("Failed to send snapshot to $peer.id: ${e.message}")
+            mutex.writeLock().withLock {
+                persistentState.isSendingSnapshot[peer.id] = false
+            }
+        }
+    }
 
     // endregion
 

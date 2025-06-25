@@ -22,7 +22,7 @@ data class PersistentState(
     /**
      * State machine state
      */
-    var stateMachine: Map<String, String> = mapOf(),
+    var stateMachine: MutableMap<String, String> = mutableMapOf(),
     /**
      * Latest snapshot of the state machine
      */
@@ -43,6 +43,10 @@ data class PersistentState(
      * Whether the node is currently snapshotting
      */
     var isSnapshotting: Boolean = false,
+    /**
+     * Whether the node is currently sending a snapshot to a peer
+     */
+    var isSendingSnapshot: MutableMap<Int, Boolean> = mutableMapOf(),
     /**
      * The persistence of the node
      */

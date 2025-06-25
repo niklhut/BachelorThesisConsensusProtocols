@@ -1,4 +1,4 @@
-package raft.utils.types
+package raft.core.utils.types
 
 /**
  * Volatile state maintained in memory

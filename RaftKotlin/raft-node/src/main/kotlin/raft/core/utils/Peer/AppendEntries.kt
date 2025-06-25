@@ -1,6 +1,6 @@
-package raft.utils.peer
+package raft.core.utils.peer
 
-import raft.utils.types.LogEntry
+import raft.core.utils.types.LogEntry
 
 /**
  * Leader to Follower, used for log replication and heartbeats

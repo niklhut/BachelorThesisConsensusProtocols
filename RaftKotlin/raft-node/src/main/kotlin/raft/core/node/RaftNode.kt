@@ -1,4 +1,4 @@
-package raft.node
+package raft.core.node
 
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlinx.coroutines.CoroutineScope
@@ -14,13 +14,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import raft.node.RaftNodePersistence
-import raft.node.RaftPeerTransport
-import raft.utils.RaftError
-import raft.utils.ReplicationTracker
-import raft.utils.types.*
-import raft.utils.peer.*
-import raft.utils.client.*
+import raft.core.node.RaftNodePersistence
+import raft.core.node.RaftPeerTransport
+import raft.core.utils.RaftError
+import raft.core.utils.ReplicationTracker
+import raft.core.utils.types.*
+import raft.core.utils.peer.*
+import raft.core.utils.client.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration
 

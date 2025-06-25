@@ -1,7 +1,7 @@
-package raft.node
+package raft.core.node
 
-import raft.utils.peer.*
-import raft.utils.types.Peer
+import raft.core.utils.peer.*
+import raft.core.utils.types.Peer
 
 /**
  * Interface for transport layer for Raft peers.

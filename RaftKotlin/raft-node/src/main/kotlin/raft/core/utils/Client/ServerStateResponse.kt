@@ -1,6 +1,6 @@
-package raft.utils.client
+package raft.core.utils.client
 
-import raft.utils.types.ServerState
+import raft.core.utils.types.ServerState
 
 /**
  * A response to a server state request.

@@ -1,6 +1,6 @@
-package raft.utils.client
+package raft.core.utils.client
 
-import raft.utils.types.Peer
+import raft.core.utils.types.Peer
 
 /**
  * A request to get a value by key from the state machine.

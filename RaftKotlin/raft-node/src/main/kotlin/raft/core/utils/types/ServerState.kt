@@ -1,4 +1,4 @@
-package raft.utils.types
+package raft.core.utils.types
 
 /**
  * The current role of the server in the Raft cluster

@@ -1,6 +1,6 @@
-package raft.node
+package raft.core.node
 
-import raft.utils.types.Snapshot
+import raft.core.utils.types.Snapshot
 
 /**
  * Interface for persisting snapshots

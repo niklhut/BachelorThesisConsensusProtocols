@@ -1,6 +1,6 @@
-package raft.utils.peer
+package raft.core.utils.peer
 
-import raft.utils.types.Snapshot
+import raft.core.utils.types.Snapshot
 
 /**
  * Leader to Follower, used for installing snapshots

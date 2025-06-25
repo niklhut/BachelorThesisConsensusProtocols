@@ -1,7 +1,7 @@
-package raft.utils.types
+package raft.core.utils.types
 
-import raft.utils.types.Snapshot
-import raft.node.RaftNodePersistence
+import raft.core.utils.types.Snapshot
+import raft.core.node.RaftNodePersistence
 
 /**
  * The durable state persisted to disk across crashes

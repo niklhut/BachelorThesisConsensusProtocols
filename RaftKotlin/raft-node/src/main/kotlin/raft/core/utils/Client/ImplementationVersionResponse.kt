@@ -1,4 +1,4 @@
-package raft.utils.client
+package raft.core.utils.client
 
 /**
  * A response to a implementation version request.

@@ -1,4 +1,4 @@
-package raft.utils.types
+package raft.core.utils.types
 
 /**
  * A snapshot of the state machine

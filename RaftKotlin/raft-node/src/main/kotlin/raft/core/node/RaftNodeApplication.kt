@@ -1,6 +1,6 @@
-package raft.node
+package raft.core.node
 
-import raft.utils.types.Peer
+import raft.core.utils.types.Peer
 
 /**
  * Abstract class for a Raft node application.

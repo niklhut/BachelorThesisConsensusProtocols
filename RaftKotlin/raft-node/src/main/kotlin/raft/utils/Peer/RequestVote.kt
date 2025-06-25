@@ -1,4 +1,4 @@
-package raft.types.peer
+package raft.utils.peer
 
 /**
  * Candidate to Peer, used for voting

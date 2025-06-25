@@ -1,4 +1,4 @@
-package raft.types
+package raft.utils.types
 
 /**
  * Leader only volatile state tracking next log entry to send to each follower

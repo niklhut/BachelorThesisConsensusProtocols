@@ -1,4 +1,4 @@
-package raft.types
+package raft.utils
 
 /**
  * Errors that can occur in the Raft node.

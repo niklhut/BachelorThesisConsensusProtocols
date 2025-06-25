@@ -1,3 +1,5 @@
+package raft.node
+
 import java.util.concurrent.locks.ReentrantReadWriteLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -14,13 +16,15 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import raft.node.RaftNodePersistence
 import raft.node.RaftPeerTransport
-import raft.types.*
-import raft.types.peer.*
-import raft.types.client.*
+import raft.utils.RaftError
+import raft.utils.ReplicationTracker
+import raft.utils.types.*
+import raft.utils.peer.*
+import raft.utils.client.*
 import kotlin.time.Duration.Companion.milliseconds
 import kotlin.time.Duration
 
-class RafTNode(
+class RaftNode(
         private val ownPeer: Peer,
         peers: MutableList<Peer>,
         config: RaftConfig,

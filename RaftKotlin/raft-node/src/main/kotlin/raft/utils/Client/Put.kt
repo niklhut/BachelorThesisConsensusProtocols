@@ -1,6 +1,6 @@
-package raft.types.client
+package raft.utils.client
 
-import raft.types.Peer
+import raft.utils.types.Peer
 
 /**
  * A request to put a key-value pair in the state machine.

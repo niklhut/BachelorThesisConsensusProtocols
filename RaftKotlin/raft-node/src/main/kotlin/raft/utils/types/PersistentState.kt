@@ -1,6 +1,6 @@
-package raft.types
+package raft.utils.types
 
-import raft.types.Snapshot
+import raft.utils.types.Snapshot
 import raft.node.RaftNodePersistence
 
 /**

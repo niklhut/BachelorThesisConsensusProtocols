@@ -1,29 +1,23 @@
+package raft.utils
+
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/**
- * Tracks the replication of log entries to peers.
- */
+/** Tracks the replication of log entries to peers. */
 class ReplicationTracker(
-    /**
-     * The number of peers that need to have replicated the log entries.
-     */
-    private val majority: Int
+        /** The number of peers that need to have replicated the log entries. */
+        private val majority: Int
 ) {
-    /**
-     * The mutex for thread-safe access to the state.
-     */
+    /** The mutex for thread-safe access to the state. */
     private val mutex = Mutex()
-    /**
-     * The set of peers that have successfully replicated the log entries.
-     */
+    /** The set of peers that have successfully replicated the log entries. */
     private val successful: MutableSet<Int> = mutableSetOf()
     /**
-     * The set of continuations to be resumed when the majority of peers have replicated the log entries.
+     * The set of continuations to be resumed when the majority of peers have replicated the log
+     * entries.
      */
     private val continuations: MutableList<CompletableDeferred<Unit>> = mutableListOf()
-
 
     /**
      * Marks a peer as successful.
@@ -44,9 +38,7 @@ class ReplicationTracker(
         }
     }
 
-    /**
-     * Waits for the majority of peers to have replicated the log entries.
-     */
+    /** Waits for the majority of peers to have replicated the log entries. */
     suspend fun waitForMajority() {
         mutex.withLock {
             if (successful.size >= majority) {

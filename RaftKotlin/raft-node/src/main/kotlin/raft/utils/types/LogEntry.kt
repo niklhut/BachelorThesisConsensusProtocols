@@ -1,4 +1,4 @@
-package raft.types
+package raft.utils.types
 
 /**
  * A single entry in the replicated log

@@ -1,4 +1,4 @@
-package raft.types
+package raft.utils.types
 
 /**
  * Configuration for the Raft node.

@@ -1,6 +1,6 @@
 package raft.node
 
-import raft.types.Peer
+import raft.utils.types.Peer
 
 /**
  * Abstract class for a Raft node application.

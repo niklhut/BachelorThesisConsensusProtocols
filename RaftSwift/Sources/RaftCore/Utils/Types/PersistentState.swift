@@ -27,6 +27,9 @@ struct PersistentState: Sendable {
     /// Whether the node is currently snapshotting
     var isSnapshotting = false
 
+    /// Whether the node is currently sending a snapshot to a peer
+    var isSendingSnapshot: [Int: Bool] = [:]
+
     /// The persistence of the node
     var persistence: any RaftNodePersistence
 

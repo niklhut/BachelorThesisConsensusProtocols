@@ -858,6 +858,8 @@ public actor RaftNode {
     }
 
     /// Checks if a snapshot should be created.
+    ///
+    /// - Returns: True if a snapshot should be created, false otherwise.
     private func shouldCreateSnapshot() -> Bool {
         guard persistentState.persistence.compactionThreshold > 0 else {
             return false
@@ -878,7 +880,15 @@ public actor RaftNode {
         }
 
         let snapshotLastIndex = volatileState.commitIndex
+        guard snapshotLastIndex > persistentState.snapshot.lastIncludedIndex else {
+            return
+        }
+
         let lastCommittedArrayIndex = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
+        guard lastCommittedArrayIndex >= 0, lastCommittedArrayIndex < persistentState.log.count else {
+            return
+        }
+
         let snapshotLastTerm = persistentState.log[lastCommittedArrayIndex].term
 
         let snapshot = Snapshot(
@@ -900,10 +910,11 @@ public actor RaftNode {
     ///
     /// - Parameter peer: The peer to send the snapshot to.
     private func sendSnapshotToPeer(_ peer: Peer) async throws {
-        guard volatileState.state == .leader else {
+        guard volatileState.state == .leader, let sendingSnapshotToPeer = persistentState.isSendingSnapshot[peer.id], !sendingSnapshotToPeer else {
             return
         }
 
+        persistentState.isSendingSnapshot[peer.id] = true
         let currentTerm = persistentState.currentTerm
         let leaderID = persistentState.ownPeer.id
         let snapshot = persistentState.snapshot
@@ -917,6 +928,7 @@ public actor RaftNode {
 
         do {
             let response = try await transport.installSnapshot(request, on: peer, isolation: #isolation)
+            persistentState.isSendingSnapshot[peer.id] = false
 
             if response.term > persistentState.currentTerm {
                 logger.info("Received higher term \(response.term) during InstallSnapshot, becoming follower of \(peer.id)")

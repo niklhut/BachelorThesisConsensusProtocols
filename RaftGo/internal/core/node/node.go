@@ -1267,9 +1267,11 @@ func (rn *RaftNode) createSnapshot() {
 		LastIncludedTerm:  snapshotLastTerm,
 		StateMachine:      stateMachineCopy,
 	}
+
+	ownId := rn.persistentState.OwnPeer.ID
 	rn.releaseLockWithLogger("createSnapshot 1")
 
-	err := rn.persistentState.Persistence.SaveSnapshot(snapshot, rn.persistentState.OwnPeer.ID)
+	err := rn.persistentState.Persistence.SaveSnapshot(snapshot, ownId)
 
 	rn.ackquireLockWithLogger("createSnapshot 2")
 	defer rn.releaseLockWithLogger("createSnapshot 2")

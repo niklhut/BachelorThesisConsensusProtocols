@@ -9,6 +9,8 @@ plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
     kotlin("jvm") version "2.0.0"
 
+    id("com.google.protobuf") version "0.9.5"
+
     // Apply the application plugin to add support for building a CLI application in Java.
     application
 }
@@ -17,6 +19,10 @@ repositories {
     // Use Maven Central for resolving dependencies.
     mavenCentral()
 }
+
+val grpcKotllinStubVersion = "1.4.3"
+val grpcProtobufVersion = "1.73.0"
+val protobufKotlinVersion = "4.31.1"
 
 dependencies {
     // Use the Kotlin JUnit 5 integration.
@@ -33,6 +39,35 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
     implementation("org.slf4j:slf4j-api:2.0.13")
     implementation("org.slf4j:slf4j-simple:2.0.13")
+
+    implementation("io.grpc:grpc-kotlin-stub:$grpcKotllinStubVersion")
+    implementation("io.grpc:grpc-protobuf:$grpcProtobufVersion")
+    implementation("com.google.protobuf:protobuf-kotlin:$protobufKotlinVersion")
+}
+
+protobuf {
+    protoc {
+        artifact = "com.google.protobuf:protoc:$protobufKotlinVersion"
+    }
+    plugins {
+        create("grpc") {
+            artifact = "io.grpc:protoc-gen-grpc-java:$grpcProtobufVersion"
+        }
+        create("grpckt") {
+            artifact = "io.grpc:protoc-gen-grpc-kotlin:$grpcKotllinStubVersion:jdk8@jar"
+        }
+    }
+    generateProtoTasks {
+        all().forEach {
+            it.plugins {
+                create("grpc")
+                create("grpckt")
+            }
+            it.builtins {
+                create("kotlin")
+            }
+        }
+    }
 }
 
 // Apply a specific Java toolchain to ease working on different environments.

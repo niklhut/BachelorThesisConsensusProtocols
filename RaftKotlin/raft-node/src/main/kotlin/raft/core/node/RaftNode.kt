@@ -16,8 +16,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import raft.core.node.RaftNodePersistence
 import raft.core.node.RaftPeerTransport
-import raft.core.utils.RaftError
-import raft.core.utils.ReplicationTracker
+import raft.core.utils.*
 import raft.core.utils.types.*
 import raft.core.utils.peer.*
 import raft.core.utils.client.*
@@ -922,7 +921,11 @@ class RaftNode(
 
                 if (entry.key != null) {
                     val oldValue = persistentState.stateMachine[entry.key]
-                    persistentState.stateMachine[entry.key!] = entry.value
+                    if (entry.value != null) {
+                        persistentState.stateMachine[entry.key] = entry.value
+                    } else {
+                        persistentState.stateMachine.remove(entry.key)
+                    }
                     logger.trace("Applied entry at index $nextApplyIndex: ${entry.key} = ${entry.value} (was: $oldValue)")
                 }
 
@@ -1096,7 +1099,7 @@ class RaftNode(
                 // Upon successful installation, update matchIndex and nextIndex for the peer
                 leaderState.matchIndex[peer.id] = snapshot.lastIncludedIndex
                 leaderState.nextIndex[peer.id] = snapshot.lastIncludedIndex + 1
-                logger.info("Successfully sent snapshot to $peer.id. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?? 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?? 0}")
+                logger.info("Successfully sent snapshot to $peer.id. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?: 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?: 0}")
             }
         } catch (e: Exception) {
             logger.error("Failed to send snapshot to $peer.id: ${e.message}")

@@ -1,3 +1,5 @@
+package raft.core.utils
+
 import java.util.concurrent.locks.Lock
 
 /**

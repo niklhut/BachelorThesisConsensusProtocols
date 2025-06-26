@@ -15,7 +15,7 @@ import kotlinx.coroutines.cancel
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import raft.core.node.RaftNodePersistence
-import raft.core.node.RaftPeerTransport
+import raft.core.node.RaftNodeTransport
 import raft.core.utils.*
 import raft.core.utils.types.*
 import raft.core.utils.peer.*
@@ -27,7 +27,7 @@ class RaftNode(
         private val ownPeer: Peer,
         peers: MutableList<Peer>,
         config: RaftConfig,
-        private val transport: RaftPeerTransport,
+        private val transport: RaftNodeTransport,
         persistence: RaftNodePersistence,
 ) {
     private val logger: Logger = LoggerFactory.getLogger("raft.RaftNode.${ownPeer.id}")

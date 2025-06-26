@@ -66,6 +66,16 @@ protobuf {
             it.builtins {
                 create("kotlin")
             }
+            // Ensure generated files use the correct JVM target
+            it.generateDescriptorSet = true
+        }
+    }
+}
+
+sourceSets {
+    main {
+        proto {
+            srcDirs("src/proto")
         }
     }
 }
@@ -74,6 +84,15 @@ protobuf {
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(21)
+    }
+    // Explicitly set source and target compatibility for Java compilation (good practice)
+    sourceCompatibility = JavaVersion.VERSION_21
+    targetCompatibility = JavaVersion.VERSION_21
+}
+
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21)
     }
 }
 

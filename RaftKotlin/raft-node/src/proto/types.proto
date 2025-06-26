@@ -1,0 +1,104 @@
+syntax = "proto3";
+package raft;
+
+import "google/protobuf/timestamp.proto";
+
+// Represents the current role of the server in the Raft cluster
+enum ServerState {
+    // Passive role; waits for messages from leader
+    FOLLOWER = 0;
+
+    // Candidate trying to gather votes to become leader
+    CANDIDATE = 1;
+
+    // Active leader role that sends heartbeats and manages log replication
+    LEADER = 2;
+}
+
+// A peer in the cluster
+message Peer {
+    // ID of the peer
+    uint32 id = 1;
+    // Address of the peer
+    string address = 2;
+    // Port of the peer
+    uint32 port = 3;
+}
+
+// A single entry in the replicated log
+message LogEntry {
+  // Term when the entry was received by the leader
+  uint64 term = 1;
+
+  // Key for the key-value operation, optional for no-op entries
+  optional string key = 2;
+
+  // Optional value (null if this is a deletion or no-op)
+  optional string value = 3;
+}
+
+// The durable state persisted to disk across crashes
+message PersistentState {
+  // Latest term server has seen (initialized to 0)
+  uint64 current_term = 1;
+
+  // Candidate ID that received vote in current term (or null)
+  optional uint32 voted_for = 2;
+
+  // Log entries, each containing a command for the state machine
+  repeated LogEntry log = 3;
+
+  // State machine state
+  map<string, string> state_machine = 4;
+
+  // Latest snapshot of the state machine
+  Snapshot snapshot = 5;
+
+  // The self peer config
+  Peer ownPeer = 6;
+
+  // List of peers in the cluster
+  repeated Peer peers = 7;
+}
+
+// Volatile state maintained in memory
+message VolatileState {
+  // Index of highest log entry known to be committed
+  uint64 commit_index = 1;
+
+  // Index of highest log entry applied to state machine
+  uint64 last_applied = 2;
+
+  // Current role/state of this server
+  ServerState state = 3;
+
+  // ID of the current leader, if this node is a follower
+  optional uint32 current_leader_id = 4;
+
+  // Last heartbeat time
+  google.protobuf.Timestamp last_heartbeat = 5;
+
+  // Election timeout
+  uint32 election_timeout = 6;
+}
+
+// Leader-only volatile state tracking next log entry to send to each follower
+message LeaderState {
+  // For each follower, index of the next log entry to send to that follower
+  map<uint32, uint64> next_index = 1;
+
+  // For each follower, index of highest log entry known to be replicated on that follower
+  map<uint32, uint64> match_index = 2;
+}
+
+// A snapshot of the entire state machine
+message Snapshot {
+  // Index of last log entry included in the snapshot
+  uint64 last_included_index = 1;
+
+  // Term of last log entry included in the snapshot
+  uint64 last_included_term = 2;
+
+  // State machine state
+  map<string, string> state_machine = 3;
+}

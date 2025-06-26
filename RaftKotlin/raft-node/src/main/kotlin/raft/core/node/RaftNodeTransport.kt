@@ -7,7 +7,7 @@ import raft.core.utils.types.Peer
  * Interface for transport layer for Raft peers.
  * This allows for different transport layers to be used.
  */
-interface RaftPeerTransport {
+interface RaftNodeTransport {
     /**
      * Sends an AppendEntries message to the specified peer.
      *

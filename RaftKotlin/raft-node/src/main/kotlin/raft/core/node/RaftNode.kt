@@ -613,7 +613,7 @@ class RaftNode(
             val response = transport.requestVote(voteRequest, peer)
             peer.id to response
         } catch (e: Exception) {
-            logger.error("Failed to request vote from ${peer.id}", e)
+            logger.error("Failed to request vote from ${peer.id}")
             peer.id to
                     RequestVoteResponse(
                             term = 0,

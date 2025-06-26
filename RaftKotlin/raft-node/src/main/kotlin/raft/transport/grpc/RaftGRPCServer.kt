@@ -63,27 +63,22 @@ class RaftGRPCServer(
             .intercept(partitionInterceptor)
             .build()
 
-        coroutineScope {
-            // Start server in a separate coroutine
-            launch {
-                try {
-                    server?.start()
-                    logger.info("Server listening on 0.0.0.0:${ownPeer.port}")
+        server?.start()
+        logger.info("Server listening on 0.0.0.0:${ownPeer.port}")
 
-                    // Keep server running
-                    server?.awaitTermination()
-                } catch (e: Exception) {
-                    logger.error("Server error", e)
-                    throw e
-                }
-            }
-
-            // Start the Raft node
-            launch {
-                logger.info("Starting node")
-                node.start()
-            }
+        // Start the Raft node (won't be blocked by awaitTermination)
+        val nodeJob = CoroutineScope(Dispatchers.Default).launch {
+            logger.info("Starting node")
+            node.start()
         }
+
+        // Wait for the server to terminate (in blocking context)
+        withContext(Dispatchers.IO) {
+            server?.awaitTermination()
+        }
+
+        // Optionally, wait for node job to complete or cancel it when server shuts down
+        nodeJob.cancelAndJoin()
     }
 
     /**

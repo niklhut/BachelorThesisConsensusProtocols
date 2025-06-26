@@ -7,7 +7,8 @@
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    kotlin("jvm") version "2.0.0"
+    kotlin("jvm") version "2.2.0"
+    kotlin("plugin.serialization") version "2.2.0"
 
     id("com.google.protobuf") version "0.9.5"
 
@@ -37,12 +38,16 @@ dependencies {
     implementation(libs.guava)
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
     implementation("org.slf4j:slf4j-api:2.0.13")
     implementation("org.slf4j:slf4j-simple:2.0.13")
 
     implementation("io.grpc:grpc-kotlin-stub:$grpcKotllinStubVersion")
     implementation("io.grpc:grpc-protobuf:$grpcProtobufVersion")
+    implementation("io.grpc:grpc-netty:${grpcProtobufVersion}")
     implementation("com.google.protobuf:protobuf-kotlin:$protobufKotlinVersion")
+
+    implementation("com.github.ajalt.clikt:clikt:5.0.3")
 }
 
 protobuf {
@@ -98,7 +103,7 @@ kotlin {
 
 application {
     // Define the main class for the application.
-    mainClass = "org.example.AppKt"
+    mainClass = "raft.app.AppKt"
 }
 
 tasks.named<Test>("test") {

@@ -1,8 +1,11 @@
 package raft.core.utils.types
 
+import kotlinx.serialization.Serializable
+
 /**
  * A snapshot of the state machine
  */
+@Serializable
 data class Snapshot(
     /**
      * Index of last log entry included in the snapshot

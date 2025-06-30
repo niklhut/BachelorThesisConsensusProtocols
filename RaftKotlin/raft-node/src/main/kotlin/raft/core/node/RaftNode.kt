@@ -1,27 +1,25 @@
 package raft.core.node
 
 import java.util.concurrent.locks.ReentrantReadWriteLock
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.milliseconds
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.job
+import kotlinx.coroutines.launch
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import raft.core.node.RaftNodePersistence
-import raft.core.node.RaftNodeTransport
 import raft.core.utils.*
-import raft.core.utils.types.*
-import raft.core.utils.peer.*
 import raft.core.utils.client.*
-import kotlin.time.Duration.Companion.milliseconds
-import kotlin.time.Duration
+import raft.core.utils.peer.*
+import raft.core.utils.types.*
 
 class RaftNode(
         private val ownPeer: Peer,
@@ -62,6 +60,7 @@ class RaftNode(
         logger.trace(
                 "Received request vote from ${request.candidateId}, term ${request.term}, myTerm ${persistentState.currentTerm}"
         )
+
         resetElectionTimer()
 
         if (request.term < persistentState.currentTerm) {
@@ -140,7 +139,6 @@ class RaftNode(
                 )
             }
 
-
             // Reply false if log doesn't contain an entry at prevLogIndex whose term matches
             // prevLogTerm
             if (request.prevLogIndex > 0) {
@@ -154,11 +152,16 @@ class RaftNode(
                     )
                 }
 
-                val prevLogTerm = if (request.prevLogIndex > persistentState.snapshot.lastIncludedIndex) {
-                    persistentState.log[request.prevLogIndex - persistentState.snapshot.lastIncludedIndex - 1].term
-                } else {
-                    persistentState.snapshot.lastIncludedTerm
-                }
+                val prevLogTerm =
+                        if (request.prevLogIndex > persistentState.snapshot.lastIncludedIndex) {
+                            persistentState.log[
+                                            request.prevLogIndex -
+                                                    persistentState.snapshot.lastIncludedIndex -
+                                                    1]
+                                    .term
+                        } else {
+                            persistentState.snapshot.lastIncludedTerm
+                        }
 
                 if (prevLogTerm != request.prevLogTerm) {
                     logger.info(
@@ -177,20 +180,27 @@ class RaftNode(
                 var conflictIndex: Int? = null
 
                 for ((i, newEntry) in request.entries.withIndex()) {
-                    val logIndex = request.prevLogIndex + i + 1 // The absolute index of the log entry
-                    val arrayIndex = logIndex - persistentState.snapshot.lastIncludedIndex - 1 // The index in the log array
+                    val logIndex =
+                            request.prevLogIndex + i + 1 // The absolute index of the log entry
+                    val arrayIndex =
+                            logIndex -
+                                    persistentState.snapshot.lastIncludedIndex -
+                                    1 // The index in the log array
 
                     if (arrayIndex >= 0 && arrayIndex < persistentState.log.size) {
                         // This is an existing entry in our log - check for conflict
                         val existingEntry = persistentState.log[arrayIndex]
                         if (existingEntry.term != newEntry.term) {
                             // Found a conflict - different term for same index
-                            logger.info("Found conflict at index $logIndex: existing term ${existingEntry.term}, new term ${newEntry.term}")
+                            logger.info(
+                                    "Found conflict at index $logIndex: existing term ${existingEntry.term}, new term ${newEntry.term}"
+                            )
                             conflictIndex = i
                             break
                         }
                     } else if (arrayIndex < 0) {
-                        // The new entry's log index is covered by the snapshot, which means a conflict.
+                        // The new entry's log index is covered by the snapshot, which means a
+                        // conflict.
                         // This can happen if the leader's snapshot is older than ours,
                         // or if it's trying to send entries that are already in our snapshot.
                         logger.info("New entry at index $logIndex is already covered by snapshot.")
@@ -203,17 +213,31 @@ class RaftNode(
 
                 if (conflictIndex != null) {
                     // Remove conflicting entry and everything that follows
-                    val deleteFromIndex = request.prevLogIndex + conflictIndex + 1 // The absolute index of the log entry
-                    val deleteFromArrayIndex = deleteFromIndex - persistentState.snapshot.lastIncludedIndex - 1 // The index in the log array
+                    val deleteFromIndex =
+                            request.prevLogIndex +
+                                    conflictIndex +
+                                    1 // The absolute index of the log entry
+                    val deleteFromArrayIndex =
+                            deleteFromIndex -
+                                    persistentState.snapshot.lastIncludedIndex -
+                                    1 // The index in the log array
 
                     if (deleteFromArrayIndex >= 0) {
-                        logger.info("Truncating log from absolute index $deleteFromIndex (array index $deleteFromArrayIndex)")
-                        persistentState.log.subList(deleteFromArrayIndex, persistentState.log.size).clear()
+                        logger.info(
+                                "Truncating log from absolute index $deleteFromIndex (array index $deleteFromArrayIndex)"
+                        )
+                        persistentState
+                                .log
+                                .subList(deleteFromArrayIndex, persistentState.log.size)
+                                .clear()
                     } else {
                         // The conflict is within the snapshot range or immediately after.
-                        // In this case, we should discard the entire log because our log is inconsistent
+                        // In this case, we should discard the entire log because our log is
+                        // inconsistent
                         // with what the leader is sending regarding its snapshot base.
-                        logger.info("Truncating entire log due to conflict detected within or immediately after snapshot range.")
+                        logger.info(
+                                "Truncating entire log due to conflict detected within or immediately after snapshot range."
+                        )
                         // TODO: check if we should do this or remove it (also in other languages)
                         persistentState.log.clear()
                     }
@@ -222,8 +246,11 @@ class RaftNode(
                 // Append any new entries not already in the log
                 val startAppendIndex = maxOf(0, persistentState.logLength - request.prevLogIndex)
                 if (startAppendIndex < request.entries.size) {
-                    val entriesToAppend = request.entries.subList(startAppendIndex, request.entries.size)
-                    logger.debug("Appending ${entriesToAppend.size} entries starting from log index ${persistentState.logLength + 1}")
+                    val entriesToAppend =
+                            request.entries.subList(startAppendIndex, request.entries.size)
+                    logger.debug(
+                            "Appending ${entriesToAppend.size} entries starting from log index ${persistentState.logLength + 1}"
+                    )
                     persistentState.log.addAll(entriesToAppend)
                 }
             }
@@ -260,15 +287,25 @@ class RaftNode(
             if (request.term < persistentState.currentTerm) {
                 return InstallSnapshotResponse(term = persistentState.currentTerm)
             } else if (request.term > persistentState.currentTerm) {
-                logger.info("Received higher term ${request.term}, becoming follower of ${request.leaderId}")
+                logger.info(
+                        "Received higher term ${request.term}, becoming follower of ${request.leaderId}"
+                )
                 becomeFollower(newTerm = request.term, currentLeaderId = request.leaderId)
             } else if (volatileState.state == ServerState.CANDIDATE) {
                 // Own term and term of leader are the same
                 // If the node is a candidate, it should become a follower
-                becomeFollower(newTerm = persistentState.currentTerm, currentLeaderId = request.leaderId)
+                becomeFollower(
+                        newTerm = persistentState.currentTerm,
+                        currentLeaderId = request.leaderId
+                )
             } else if (volatileState.currentLeaderID != request.leaderId) {
-                logger.info("Received append entries from a different leader, becoming follower of ${request.leaderId}")
-                becomeFollower(newTerm = persistentState.currentTerm, currentLeaderId = request.leaderId)
+                logger.info(
+                        "Received append entries from a different leader, becoming follower of ${request.leaderId}"
+                )
+                becomeFollower(
+                        newTerm = persistentState.currentTerm,
+                        currentLeaderId = request.leaderId
+                )
             }
 
             // Save snapshot
@@ -324,13 +361,18 @@ class RaftNode(
             mutex.readLock().unlock()
             return PutResponse(
                     success = false,
-                    leaderHint = persistentState.peers.firstOrNull { it.id == volatileState.currentLeaderID }
+                    leaderHint =
+                            persistentState.peers.firstOrNull {
+                                it.id == volatileState.currentLeaderID
+                            }
             )
         }
         val term = persistentState.currentTerm
         mutex.readLock().unlock()
 
-        replicateLog(entries = listOf(LogEntry(term = term, key = request.key, value = request.value)))
+        replicateLog(
+                entries = listOf(LogEntry(term = term, key = request.key, value = request.value))
+        )
 
         return PutResponse(success = true)
     }
@@ -344,7 +386,8 @@ class RaftNode(
     public suspend fun get(request: GetRequest): GetResponse {
         mutex.readLock().withLock {
             if (volatileState.state != ServerState.LEADER) {
-                val leaderHint = persistentState.peers.firstOrNull { it.id == volatileState.currentLeaderID }
+                val leaderHint =
+                        persistentState.peers.firstOrNull { it.id == volatileState.currentLeaderID }
                 return GetResponse(leaderHint = leaderHint)
             }
             return GetResponse(value = persistentState.stateMachine[request.key])
@@ -372,8 +415,8 @@ class RaftNode(
     public suspend fun getState(): ServerStateResponse {
         mutex.readLock().withLock {
             return ServerStateResponse(
-                id = persistentState.ownPeer.id,
-                state = volatileState.state,
+                    id = persistentState.ownPeer.id,
+                    state = volatileState.state,
             )
         }
     }
@@ -386,8 +429,8 @@ class RaftNode(
     public suspend fun getTerm(): ServerTermResponse {
         mutex.readLock().withLock {
             return ServerTermResponse(
-                id = persistentState.ownPeer.id,
-                term = persistentState.currentTerm,
+                    id = persistentState.ownPeer.id,
+                    term = persistentState.currentTerm,
             )
         }
     }
@@ -400,9 +443,9 @@ class RaftNode(
     public suspend fun getImplementationVersion(): ImplementationVersionResponse {
         mutex.readLock().withLock {
             return ImplementationVersionResponse(
-                id = persistentState.ownPeer.id,
-                implementation = "Kotlin",
-                version = "1.3.0",
+                    id = persistentState.ownPeer.id,
+                    implementation = "Kotlin",
+                    version = "1.3.0",
             )
         }
     }
@@ -411,25 +454,19 @@ class RaftNode(
 
     // region Node Lifecycle
 
-    /**
-     * Starts the node.
-     */
+    /** Starts the node. */
     public suspend fun start() {
         loadSnapshotOnStartup()
         startHeartbeatTask()
     }
 
-    /**
-     * Shuts down the node.
-     */
+    /** Shuts down the node. */
     public suspend fun shutdown() {
         heartbeatJob?.cancel()
         scope.cancel()
     }
 
-    /**
-     * Starts the heartbeat task.
-     */
+    /** Starts the heartbeat task. */
     private fun startHeartbeatTask() {
         // Cancel existing task if it exists
         heartbeatJob?.cancel()
@@ -438,40 +475,38 @@ class RaftNode(
         val heartbeatInterval = persistentState.config.heartbeatInterval.milliseconds
         mutex.readLock().unlock()
 
-        heartbeatJob = scope.launch {
-            while (currentCoroutineContext().job.isActive) {
-                try {
-                    val timeout: Duration
-                    val action: suspend () -> Unit
+        heartbeatJob =
+                scope.launch {
+                    while (currentCoroutineContext().job.isActive) {
+                        try {
+                            val timeout: Duration
+                            val action: suspend () -> Unit
 
-                    mutex.readLock().lock()
-                    val state = volatileState.state
-                    mutex.readLock().unlock()
+                            mutex.readLock().lock()
+                            val state = volatileState.state
+                            mutex.readLock().unlock()
 
-                    if (state == ServerState.LEADER) {
-                        timeout = heartbeatInterval
-                        action = ::sendHeartbeat
-                    } else {
-                        timeout = heartbeatInterval * 3
-                        action = ::checkElectionTimeout
+                            if (state == ServerState.LEADER) {
+                                timeout = heartbeatInterval
+                                action = ::sendHeartbeat
+                            } else {
+                                timeout = heartbeatInterval * 3
+                                action = ::checkElectionTimeout
+                            }
+
+                            val actionJob = launch { action() }
+
+                            delay(timeout)
+                            actionJob.cancel()
+                        } catch (e: Exception) {
+                            logger.error("Heartbeat task failed: $e")
+                            continue
+                        }
                     }
-
-                    val actionJob = launch { action() }
-
-                    delay(timeout)
-                    actionJob.cancel()
-
-                } catch (e: Exception) {
-                    logger.error("Heartbeat task failed: $e")
-                    continue
                 }
-            }
-        }
     }
 
-    /**
-     * Sends a heartbeat to all followers.
-     */
+    /** Sends a heartbeat to all followers. */
     private suspend fun sendHeartbeat() {
         mutex.readLock().lock()
         val state = volatileState.state
@@ -682,7 +717,8 @@ class RaftNode(
 
         // Once majority has replicated the log, update commit index
         // and apply committed entries
-        if (volatileState.state == ServerState.LEADER && persistentState.currentTerm == currentTerm) {
+        if (volatileState.state == ServerState.LEADER && persistentState.currentTerm == currentTerm
+        ) {
             updateCommitIndexAndApply()
         }
     }
@@ -699,13 +735,13 @@ class RaftNode(
      * @param entries The log entries to replicate.
      */
     private suspend fun replicateLogToPeer(
-        peer: Peer,
-        replicationTracker: ReplicationTracker,
-        currentTerm: Int,
-        leaderID: Int,
-        commitIndex: Int,
-        originalLogLength: Int,
-        entries: List<LogEntry>,
+            peer: Peer,
+            replicationTracker: ReplicationTracker,
+            currentTerm: Int,
+            leaderID: Int,
+            commitIndex: Int,
+            originalLogLength: Int,
+            entries: List<LogEntry>,
     ) {
         var retryCount = 0
         val targetEndIndex = originalLogLength + entries.size
@@ -714,8 +750,9 @@ class RaftNode(
             mutex.writeLock().withLock {
                 // Check conditions for continuing
                 if (volatileState.state != ServerState.LEADER ||
-                        persistentState.currentTerm != currentTerm ||
-                        persistentState.peers.none { it.id == peer.id }) {
+                                persistentState.currentTerm != currentTerm ||
+                                persistentState.peers.none { it.id == peer.id }
+                ) {
                     return
                 }
             }
@@ -734,13 +771,16 @@ class RaftNode(
             }
 
             // Determine peer's next index
-            val peerNextIndex = leaderState.nextIndex[peer.id] ?: persistentState.snapshot.lastIncludedIndex + 1
+            val peerNextIndex =
+                    leaderState.nextIndex[peer.id] ?: persistentState.snapshot.lastIncludedIndex + 1
 
             // Check if peer needs a snapshot
             if (peerNextIndex <= persistentState.snapshot.lastIncludedIndex) {
                 mutex.writeLock().unlock()
                 // Peer is too far behind, send snapshot
-                logger.info("Peer ${peer.id} is too far behind (nextIndex: ${peerNextIndex}), sending snapshot. Snapshot last included index: ${persistentState.snapshot.lastIncludedIndex}")
+                logger.info(
+                        "Peer ${peer.id} is too far behind (nextIndex: ${peerNextIndex}), sending snapshot. Snapshot last included index: ${persistentState.snapshot.lastIncludedIndex}"
+                )
 
                 sendSnapshotToPeer(peer)
 
@@ -760,37 +800,48 @@ class RaftNode(
                 if (peerNextIndex <= originalLogLength) {
                     // Peer needs entries from the original log (catch-up scenario)
                     val startIndex = peerNextIndex - persistentState.snapshot.lastIncludedIndex - 1
-                    entriesToSend = persistentState.log.subList(startIndex, persistentState.log.size)
+                    entriesToSend =
+                            persistentState.log.subList(startIndex, persistentState.log.size)
                 } else if (peerNextIndex == originalLogLength + 1) {
                     // Peer is up-to-date with original log, send only new entries
                     entriesToSend = entries
                 } else {
                     // Peer's nextIndex is beyond what we expect - this shouldn't happen
                     // Reset nextIndex and retry
-                    logger.warn("Peer ${peer.id} has nextIndex $peerNextIndex which is beyond what we expect (originalLogLength: $originalLogLength)")
+                    logger.warn(
+                            "Peer ${peer.id} has nextIndex $peerNextIndex which is beyond what we expect (originalLogLength: $originalLogLength)"
+                    )
                     leaderState.nextIndex[peer.id] = originalLogLength + 1
                     continue
                 }
 
                 val peerPrevLogIndex = peerNextIndex - 1
-                val peerPrevLogTerm = if (peerPrevLogIndex > persistentState.snapshot.lastIncludedIndex) {
-                    persistentState.log[peerPrevLogIndex - persistentState.snapshot.lastIncludedIndex - 1].term
-                } else {
-                    persistentState.snapshot.lastIncludedTerm
-                }
+                val peerPrevLogTerm =
+                        if (peerPrevLogIndex > persistentState.snapshot.lastIncludedIndex) {
+                            persistentState.log[
+                                            peerPrevLogIndex -
+                                                    persistentState.snapshot.lastIncludedIndex -
+                                                    1]
+                                    .term
+                        } else {
+                            persistentState.snapshot.lastIncludedTerm
+                        }
 
                 mutex.writeLock().unlock()
 
-                logger.trace("Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}")
-
-                val appendEntriesRequest = AppendEntriesRequest(
-                    term = currentTerm,
-                    leaderId = leaderID,
-                    prevLogIndex = peerPrevLogIndex,
-                    prevLogTerm = peerPrevLogTerm,
-                    entries = entriesToSend,
-                    leaderCommit = commitIndex,
+                logger.trace(
+                        "Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}"
                 )
+
+                val appendEntriesRequest =
+                        AppendEntriesRequest(
+                                term = currentTerm,
+                                leaderId = leaderID,
+                                prevLogIndex = peerPrevLogIndex,
+                                prevLogTerm = peerPrevLogTerm,
+                                entries = entriesToSend,
+                                leaderCommit = commitIndex,
+                        )
 
                 val result = transport.appendEntries(appendEntriesRequest, peer)
 
@@ -801,7 +852,9 @@ class RaftNode(
                 mutex.writeLock().lock()
 
                 if (result.term > persistentState.currentTerm) {
-                    logger.info("Received higher term ${result.term}, becoming follower of ${peer.id}")
+                    logger.info(
+                            "Received higher term ${result.term}, becoming follower of ${peer.id}"
+                    )
                     becomeFollower(newTerm = result.term, currentLeaderId = peer.id)
                     mutex.writeLock().unlock()
                     return
@@ -819,17 +872,21 @@ class RaftNode(
                     return
                 } else {
                     // Log inconsistency, decrement nextIndex and retry
-                    leaderState.nextIndex[peer.id] = maxOf(1, leaderState.nextIndex[peer.id] ?: 1 - 1)
+                    leaderState.nextIndex[peer.id] =
+                            maxOf(1, leaderState.nextIndex[peer.id] ?: 1 - 1)
                     mutex.writeLock().unlock()
 
                     retryCount += 1
-                    logger.info("Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}")
+                    logger.info(
+                            "Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}"
+                    )
 
                     // Wait before retrying with exponential backoff
                     delay(100L * minOf(64, 1 shl retryCount))
                 }
             } catch (e: Exception) {
-                val errorMessage = "Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}"
+                val errorMessage =
+                        "Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}"
                 if (retryCount == 0) {
                     logger.error(errorMessage)
                 } else {
@@ -843,9 +900,7 @@ class RaftNode(
         }
     }
 
-    /**
-     * Updates the commit index and applies the committed entries to the state machine.
-     */
+    /** Updates the commit index and applies the committed entries to the state machine. */
     private suspend fun updateCommitIndexAndApply() {
         mutex.readLock().lock()
 
@@ -894,7 +949,9 @@ class RaftNode(
                     // If the entry is from an older term, continue checking lower indices
                 } else {
                     // Index is out of bounds - this shouldn't happen with correct logic
-                    logger.warn("Calculated newCommitIndex $newCommitIndex is out of bounds for log (length: ${persistentState.log.size}, snapshot last index: ${persistentState.snapshot.lastIncludedIndex})")
+                    logger.warn(
+                            "Calculated newCommitIndex $newCommitIndex is out of bounds for log (length: ${persistentState.log.size}, snapshot last index: ${persistentState.snapshot.lastIncludedIndex})"
+                    )
                 }
             }
 
@@ -902,9 +959,7 @@ class RaftNode(
         }
     }
 
-    /**
-     * Applies the committed entries to the state machine.
-     */
+    /** Applies the committed entries to the state machine. */
     private fun applyCommittedEntries() {
         while (volatileState.lastApplied < volatileState.commitIndex) {
             val nextApplyIndex = volatileState.lastApplied + 1
@@ -926,20 +981,22 @@ class RaftNode(
                     } else {
                         persistentState.stateMachine.remove(entry.key)
                     }
-                    logger.trace("Applied entry at index $nextApplyIndex: ${entry.key} = ${entry.value} (was: $oldValue)")
+                    logger.trace(
+                            "Applied entry at index $nextApplyIndex: ${entry.key} = ${entry.value} (was: $oldValue)"
+                    )
                 }
 
                 volatileState.lastApplied += 1
             } else {
-                logger.warn("Cannot apply entry at index $nextApplyIndex: log array index $logArrayIndex is out of bounds (log size: ${persistentState.log.size}, snapshot last index: ${persistentState.snapshot.lastIncludedIndex})")
+                logger.warn(
+                        "Cannot apply entry at index $nextApplyIndex: log array index $logArrayIndex is out of bounds (log size: ${persistentState.log.size}, snapshot last index: ${persistentState.snapshot.lastIncludedIndex})"
+                )
                 break
             }
         }
 
         if (shouldCreateSnapshot()) {
-            scope.launch {
-                createSnapshot()
-            }
+            scope.launch { createSnapshot() }
         }
     }
 
@@ -966,22 +1023,22 @@ class RaftNode(
 
     // region Snapshotting
 
-    /**
-     * Loads the snapshot on startup of the node.
-     */
+    /** Loads the snapshot on startup of the node. */
     private suspend fun loadSnapshotOnStartup() {
         try {
             mutex.writeLock().withLock {
-            val snapshot = persistentState.persistence.loadSnapshot(persistentState.ownPeer.id)
-            if (snapshot != null) {
-                persistentState.snapshot = snapshot
-                persistentState.currentTerm = snapshot.lastIncludedTerm
-                persistentState.stateMachine = snapshot.stateMachine
-                volatileState.commitIndex = snapshot.lastIncludedIndex
-                volatileState.lastApplied = snapshot.lastIncludedIndex
-                logger.info("Successfully loaded snapshot up to index ${snapshot.lastIncludedIndex}.")
+                val snapshot = persistentState.persistence.loadSnapshot(persistentState.ownPeer.id)
+                if (snapshot != null) {
+                    persistentState.snapshot = snapshot
+                    persistentState.currentTerm = snapshot.lastIncludedTerm
+                    persistentState.stateMachine = snapshot.stateMachine
+                    volatileState.commitIndex = snapshot.lastIncludedIndex
+                    volatileState.lastApplied = snapshot.lastIncludedIndex
+                    logger.info(
+                            "Successfully loaded snapshot up to index ${snapshot.lastIncludedIndex}."
+                    )
+                }
             }
-        }
         } catch (e: Exception) {
             logger.error("Failed to load snapshot: ${e.message}")
         }
@@ -998,13 +1055,13 @@ class RaftNode(
                 return false
             }
 
-            return (volatileState.commitIndex - persistentState.snapshot.lastIncludedIndex) >= persistentState.persistence.compactionThreshold && !persistentState.isSnapshotting
+            return (volatileState.commitIndex - persistentState.snapshot.lastIncludedIndex) >=
+                    persistentState.persistence.compactionThreshold &&
+                    !persistentState.isSnapshotting
         }
     }
 
-    /**
-     * Creates a snapshot of the state machine.
-     */
+    /** Creates a snapshot of the state machine. */
     private suspend fun createSnapshot() {
         mutex.writeLock().withLock {
             if (persistentState.isSnapshotting) {
@@ -1019,8 +1076,10 @@ class RaftNode(
                 return
             }
 
-            val lastCommittedArrayIndex = snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
-            if (lastCommittedArrayIndex < 0 || lastCommittedArrayIndex >= persistentState.log.size) {
+            val lastCommittedArrayIndex =
+                    snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
+            if (lastCommittedArrayIndex < 0 || lastCommittedArrayIndex >= persistentState.log.size
+            ) {
                 persistentState.isSnapshotting = false
                 return
             }
@@ -1031,11 +1090,12 @@ class RaftNode(
             val stateMachineCopy = mutableMapOf<String, String>()
             stateMachineCopy.putAll(persistentState.stateMachine)
 
-            val snapshot = Snapshot(
-                lastIncludedIndex = snapshotLastIndex,
-                lastIncludedTerm = snapshotLastTerm,
-                stateMachine = stateMachineCopy,
-            )
+            val snapshot =
+                    Snapshot(
+                            lastIncludedIndex = snapshotLastIndex,
+                            lastIncludedTerm = snapshotLastTerm,
+                            stateMachine = stateMachineCopy,
+                    )
 
             val ownId = persistentState.ownPeer.id
 
@@ -1051,7 +1111,11 @@ class RaftNode(
 
             persistentState.isSnapshotting = false
 
-            logger.info("Successfully created snapshot", "lastIncludedIndex" to snapshotLastIndex, "lastIncludedTerm" to snapshotLastTerm)
+            logger.info(
+                    "Successfully created snapshot",
+                    "lastIncludedIndex" to snapshotLastIndex,
+                    "lastIncludedTerm" to snapshotLastTerm
+            )
         }
     }
 
@@ -1063,7 +1127,9 @@ class RaftNode(
     private suspend fun sendSnapshotToPeer(peer: Peer) {
         mutex.readLock().lock()
 
-        if (volatileState.state != ServerState.LEADER || persistentState.isSendingSnapshot[peer.id] == true) {
+        if (volatileState.state != ServerState.LEADER ||
+                        persistentState.isSendingSnapshot[peer.id] == true
+        ) {
             mutex.readLock().unlock()
             return
         }
@@ -1076,13 +1142,16 @@ class RaftNode(
         persistentState.isSendingSnapshot[peer.id] = true
         mutex.writeLock().unlock()
 
-        logger.info("Sending InstallSnapshot RPC to $peer.id (snapshot last index: ${snapshot.lastIncludedIndex}, last term: ${snapshot.lastIncludedTerm})")
-
-        val request = InstallSnapshotRequest(
-            term = currentTerm,
-            leaderId = leaderId,
-            snapshot = snapshot,
+        logger.info(
+                "Sending InstallSnapshot RPC to $peer.id (snapshot last index: ${snapshot.lastIncludedIndex}, last term: ${snapshot.lastIncludedTerm})"
         )
+
+        val request =
+                InstallSnapshotRequest(
+                        term = currentTerm,
+                        leaderId = leaderId,
+                        snapshot = snapshot,
+                )
 
         try {
             val response = transport.installSnapshot(request, peer)
@@ -1091,7 +1160,9 @@ class RaftNode(
                 persistentState.isSendingSnapshot[peer.id] = false
 
                 if (response.term > persistentState.currentTerm) {
-                    logger.info("Received higher term ${response.term}, becoming follower of ${peer.id}")
+                    logger.info(
+                            "Received higher term ${response.term}, becoming follower of ${peer.id}"
+                    )
                     becomeFollower(response.term, peer.id)
                     return
                 }
@@ -1099,13 +1170,13 @@ class RaftNode(
                 // Upon successful installation, update matchIndex and nextIndex for the peer
                 leaderState.matchIndex[peer.id] = snapshot.lastIncludedIndex
                 leaderState.nextIndex[peer.id] = snapshot.lastIncludedIndex + 1
-                logger.info("Successfully sent snapshot to $peer.id. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?: 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?: 0}")
+                logger.info(
+                        "Successfully sent snapshot to $peer.id. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?: 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?: 0}"
+                )
             }
         } catch (e: Exception) {
             logger.error("Failed to send snapshot to $peer.id: ${e.message}")
-            mutex.writeLock().withLock {
-                persistentState.isSendingSnapshot[peer.id] = false
-            }
+            mutex.writeLock().withLock { persistentState.isSendingSnapshot[peer.id] = false }
         }
     }
 

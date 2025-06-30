@@ -628,14 +628,15 @@ public actor RaftNode {
             let peerNextIndex = leaderState.nextIndex[peer.id] ?? originalLogLength + 1
 
             // Check if peer needs a snapshot
-            if peerNextIndex <= persistentState.snapshot.lastIncludedIndex {
+            let snapshotLastIncludedIndex = persistentState.snapshot.lastIncludedIndex
+            if peerNextIndex <= snapshotLastIncludedIndex {
                 // Peer is too far behind, send snapshot
-                logger.info("Peer \(peer.id) is too far behind (nextIndex: \(peerNextIndex)), sending snapshot. Snapshot last included index: \(persistentState.snapshot.lastIncludedIndex)")
+                logger.info("Peer \(peer.id) is too far behind (nextIndex: \(peerNextIndex)), sending snapshot. Snapshot last included index: \(snapshotLastIncludedIndex)")
                 try await sendSnapshotToPeer(peer)
 
                 // After sending snapshot, update nextIndex and matchIndex
-                leaderState.nextIndex[peer.id] = persistentState.snapshot.lastIncludedIndex + 1
-                leaderState.matchIndex[peer.id] = persistentState.snapshot.lastIncludedIndex
+                leaderState.nextIndex[peer.id] = snapshotLastIncludedIndex + 1
+                leaderState.matchIndex[peer.id] = snapshotLastIncludedIndex
 
                 // Continue to next iteration to try sending append entries from the new nextIndex
                 continue

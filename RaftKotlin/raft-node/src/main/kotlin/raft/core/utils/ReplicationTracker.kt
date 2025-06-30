@@ -40,17 +40,24 @@ class ReplicationTracker(
 
     /** Waits for the majority of peers to have replicated the log entries. */
     suspend fun waitForMajority() {
+        // First check if we already have majority without blocking
         mutex.withLock {
             if (successful.size >= majority) {
                 return
             }
-
-            val continuation = CompletableDeferred<Unit>()
-            continuations.add(continuation)
-            mutex.unlock() // Avoid deadlock
-            continuation.await()
-            mutex.lock()
         }
+
+        // If not, create a continuation and wait for it to be completed
+        val continuation = CompletableDeferred<Unit>()
+        mutex.withLock {
+            if (successful.size >= majority) {
+                return@withLock
+            }
+            continuations.add(continuation)
+        }
+
+        // Wait for the continuation to be completed
+        continuation.await()
     }
 
     /**

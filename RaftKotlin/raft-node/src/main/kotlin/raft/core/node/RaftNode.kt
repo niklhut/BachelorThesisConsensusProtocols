@@ -61,43 +61,45 @@ class RaftNode(
                 "Received request vote from ${request.candidateId}, term ${request.term}, myTerm ${persistentState.currentTerm}"
         )
 
-        resetElectionTimer()
+        mutex.writeLock().withLock {
+            resetElectionTimer()
 
-        if (request.term < persistentState.currentTerm) {
-            logger.info(
-                    "Received lower term ${request.term}, not voting for ${request.candidateId}"
-            )
+            if (request.term < persistentState.currentTerm) {
+                logger.info(
+                        "Received lower term ${request.term}, not voting for ${request.candidateId}"
+                )
+                return RequestVoteResponse(
+                        term = persistentState.currentTerm,
+                        voteGranted = false,
+                )
+            } else if (request.term > persistentState.currentTerm) {
+                logger.info(
+                        "Received higher term ${request.term}, becoming follower of ${request.candidateId}"
+                )
+                becomeFollower(newTerm = request.term, currentLeaderId = request.candidateId)
+            }
+
+            if (persistentState.votedFor == null ||
+                            persistentState.votedFor == request.candidateId &&
+                                    isLogAtLeastAsUpToDate(
+                                            lastLogIndex = request.lastLogIndex,
+                                            lastLogTerm = request.lastLogTerm
+                                    )
+            ) {
+                logger.trace("Granting vote to ${request.candidateId}")
+                persistentState.votedFor = request.candidateId
+
+                return RequestVoteResponse(
+                        term = persistentState.currentTerm,
+                        voteGranted = true,
+                )
+            }
+
             return RequestVoteResponse(
                     term = persistentState.currentTerm,
                     voteGranted = false,
             )
-        } else if (request.term > persistentState.currentTerm) {
-            logger.info(
-                    "Received higher term ${request.term}, becoming follower of ${request.candidateId}"
-            )
-            becomeFollower(newTerm = request.term, currentLeaderId = request.candidateId)
         }
-
-        if (persistentState.votedFor == null ||
-                        persistentState.votedFor == request.candidateId &&
-                                isLogAtLeastAsUpToDate(
-                                        lastLogIndex = request.lastLogIndex,
-                                        lastLogTerm = request.lastLogTerm
-                                )
-        ) {
-            logger.trace("Granting vote to ${request.candidateId}")
-            persistentState.votedFor = request.candidateId
-
-            return RequestVoteResponse(
-                    term = persistentState.currentTerm,
-                    voteGranted = true,
-            )
-        }
-
-        return RequestVoteResponse(
-                term = persistentState.currentTerm,
-                voteGranted = false,
-        )
     }
 
     /**

@@ -79,12 +79,12 @@ class RaftNode(
                 becomeFollower(newTerm = request.term, currentLeaderId = request.candidateId)
             }
 
-            if (persistentState.votedFor == null ||
-                            persistentState.votedFor == request.candidateId &&
-                                    isLogAtLeastAsUpToDate(
-                                            lastLogIndex = request.lastLogIndex,
-                                            lastLogTerm = request.lastLogTerm
-                                    )
+            if ((persistentState.votedFor == null ||
+                            persistentState.votedFor == request.candidateId) &&
+                            isLogAtLeastAsUpToDate(
+                                    lastLogIndex = request.lastLogIndex,
+                                    lastLogTerm = request.lastLogTerm
+                            )
             ) {
                 logger.trace("Granting vote to ${request.candidateId}")
                 persistentState.votedFor = request.candidateId
@@ -875,7 +875,7 @@ class RaftNode(
                 } else {
                     // Log inconsistency, decrement nextIndex and retry
                     leaderState.nextIndex[peer.id] =
-                            maxOf(1, leaderState.nextIndex[peer.id] ?: 1 - 1)
+                            maxOf(1, (leaderState.nextIndex[peer.id] ?: 1) - 1)
                     mutex.writeLock().unlock()
 
                     retryCount += 1

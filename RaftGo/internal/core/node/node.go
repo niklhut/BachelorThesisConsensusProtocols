@@ -917,7 +917,7 @@ func (rn *RaftNode) replicateLogToPeer(
 		}
 
 		// Determine peer's next index
-		peerNextIndex := len(rn.leaderState.NextIndex) + 1
+		peerNextIndex := originalLogLength + 1
 		if value, exists := rn.leaderState.NextIndex[peer.ID]; exists {
 			peerNextIndex = value
 		}
@@ -1400,7 +1400,7 @@ func (rn *RaftNode) becomeLeader() {
 
 	// Initialize nextIndex and matchIndex for all peers
 	for _, peer := range rn.persistentState.Peers {
-		rn.leaderState.NextIndex[peer.ID] = len(rn.persistentState.Log) + 1
+		rn.leaderState.NextIndex[peer.ID] = rn.persistentState.LogLength() + 1
 		rn.leaderState.MatchIndex[peer.ID] = 0
 	}
 }

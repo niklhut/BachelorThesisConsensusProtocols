@@ -698,27 +698,24 @@ class RaftNode(
         logger.trace("Replicating log entries to peers, majority: $majority, entries: $entries")
         replicationTracker.markSuccess(leaderID)
 
-        scope.launch {
-            coroutineScope {
-                for (peer in peers) {
-                    launch {
-                        replicateLogToPeer(
-                                peer = peer,
-                                replicationTracker = replicationTracker,
-                                currentTerm = currentTerm,
-                                leaderID = leaderID,
-                                commitIndex = commitIndex,
-                                originalLogLength = originalLogLength,
-                                entries = entries,
-                        )
-                    }
-                }
+        for (peer in peers) {
+            scope.launch {
+                replicateLogToPeer(
+                        peer = peer,
+                        replicationTracker = replicationTracker,
+                        currentTerm = currentTerm,
+                        leaderID = leaderID,
+                        commitIndex = commitIndex,
+                        originalLogLength = originalLogLength,
+                        entries = entries,
+                )
             }
         }
 
+        if (entries.isNotEmpty()) logger.info("Waiting for majority to have replicated the log")
         // Wait for majority to have replicated the log before returning
         replicationTracker.waitForMajority()
-        logger.trace("Majority of peers have replicated the log")
+        if (entries.isNotEmpty()) logger.info("Majority of peers have replicated the log")
 
         // Once majority has replicated the log, update commit index
         // and apply committed entries
@@ -751,44 +748,43 @@ class RaftNode(
         var retryCount = 0
         val targetEndIndex = originalLogLength + entries.size
 
-        while (!currentCoroutineContext().job.isCancelled) {
-            mutex.writeLock().withLock {
-                // Check conditions for continuing
-                if (volatileState.state != ServerState.LEADER ||
-                                persistentState.currentTerm != currentTerm ||
-                                persistentState.peers.none { it.id == peer.id }
-                ) {
-                    return
-                }
-            }
+        while (currentCoroutineContext().job.isActive) {
+            val stateCheck =
+                    mutex.readLock().withLock {
+                        volatileState.state == ServerState.LEADER &&
+                                persistentState.currentTerm == currentTerm &&
+                                persistentState.peers.any { it.id == peer.id }
+                    }
+            if (!stateCheck) return
 
             // Check if already successful
-            if (replicationTracker.isSuccessful(peer.id)) {
-                return
-            }
+            if (replicationTracker.isSuccessful(peer.id)) return
 
-            mutex.writeLock().lock()
-            val currentMatchIndex = leaderState.matchIndex[peer.id]
-            if (currentMatchIndex != null && currentMatchIndex > targetEndIndex) {
-                mutex.writeLock().unlock()
+            val matchIndexCheck =
+                    mutex.readLock().withLock {
+                        leaderState.matchIndex[peer.id]?.let { it > targetEndIndex } ?: false
+                    }
+            if (matchIndexCheck) {
                 replicationTracker.markSuccess(peer.id)
                 return
             }
 
             // Determine peer's next index
-            val peerNextIndex = leaderState.nextIndex[peer.id] ?: originalLogLength + 1
+            val peerNextIndex =
+                    mutex.readLock().withLock {
+                        leaderState.nextIndex[peer.id] ?: originalLogLength + 1
+                    }
 
             // Check if peer needs a snapshot
-            val snapshotLastIncludedIndex = persistentState.snapshot.lastIncludedIndex
+            val snapshotLastIncludedIndex =
+                    mutex.readLock().withLock { persistentState.snapshot.lastIncludedIndex }
+
             if (peerNextIndex <= snapshotLastIncludedIndex) {
-                mutex.writeLock().unlock()
                 // Peer is too far behind, send snapshot
                 logger.info(
-                        "Peer ${peer.id} is too far behind (nextIndex: ${peerNextIndex}), sending snapshot. Snapshot last included index: ${snapshotLastIncludedIndex}"
+                        "Peer ${peer.id} is too far behind (nextIndex: $peerNextIndex), sending snapshot. Snapshot last included index: $snapshotLastIncludedIndex"
                 )
-
                 sendSnapshotToPeer(peer)
-
                 mutex.writeLock().withLock {
                     // After sending snapshot, update nextIndex and matchIndex
                     leaderState.nextIndex[peer.id] = snapshotLastIncludedIndex + 1
@@ -801,43 +797,70 @@ class RaftNode(
 
             try {
                 // Calculate entries to send
-                val entriesToSend: List<LogEntry>
-                if (peerNextIndex <= originalLogLength) {
-                    // Peer needs entries from the original log (catch-up scenario)
-                    val startIndex = peerNextIndex - persistentState.snapshot.lastIncludedIndex - 1
-                    entriesToSend =
-                            persistentState.log.subList(startIndex, persistentState.log.size)
-                } else if (peerNextIndex == originalLogLength + 1) {
-                    // Peer is up-to-date with original log, send only new entries
-                    entriesToSend = entries
-                } else {
-                    // Peer's nextIndex is beyond what we expect - this shouldn't happen
-                    // Reset nextIndex and retry
-                    logger.warn(
-                            "Peer ${peer.id} has nextIndex $peerNextIndex which is beyond what we expect (originalLogLength: $originalLogLength)"
-                    )
-                    leaderState.nextIndex[peer.id] = originalLogLength + 1
-                    mutex.writeLock().unlock()
+                val (entriesToSend, peerPrevLogTerm) =
+                        mutex.readLock().withLock {
+                            val entriesToSend =
+                                    when {
+                                        peerNextIndex <= originalLogLength -> {
+                                            // Peer needs entries from the original log (catch-up
+                                            // scenario)
+                                            val startIndex =
+                                                    peerNextIndex -
+                                                            persistentState
+                                                                    .snapshot
+                                                                    .lastIncludedIndex -
+                                                            1
+                                            persistentState.log.subList(
+                                                    startIndex,
+                                                    persistentState.log.size
+                                            )
+                                        }
+                                        peerNextIndex == originalLogLength + 1 -> {
+                                            // Peer is up-to-date with original log, send only new
+                                            // entries
+                                            entries
+                                        }
+                                        else -> {
+                                            // Peer's nextIndex is beyond what we expect - this shouldn't happen
+                                            // Reset nextIndex and retry
+
+                                            logger.warn(
+                                                    "Peer ${peer.id} has nextIndex $peerNextIndex which is beyond what we expect (originalLogLength: $originalLogLength)"
+                                            )
+                                            null
+                                        }
+                                    }
+                            val peerPrevLogTerm =
+                                    if (peerNextIndex - 1 >
+                                                    persistentState.snapshot.lastIncludedIndex
+                                    ) {
+                                        persistentState.log[
+                                                        peerNextIndex -
+                                                                persistentState
+                                                                        .snapshot
+                                                                        .lastIncludedIndex -
+                                                                2]
+                                                .term
+                                    } else {
+                                        persistentState.snapshot.lastIncludedTerm
+                                    }
+                            Pair(entriesToSend, peerPrevLogTerm)
+                        }
+
+                if (entriesToSend == null) {
+                    mutex.writeLock().withLock {
+                        leaderState.nextIndex[peer.id] = originalLogLength + 1
+                    }
                     continue
                 }
 
                 val peerPrevLogIndex = peerNextIndex - 1
-                val peerPrevLogTerm =
-                        if (peerPrevLogIndex > persistentState.snapshot.lastIncludedIndex) {
-                            persistentState.log[
-                                            peerPrevLogIndex -
-                                                    persistentState.snapshot.lastIncludedIndex -
-                                                    1]
-                                    .term
-                        } else {
-                            persistentState.snapshot.lastIncludedTerm
-                        }
 
-                mutex.writeLock().unlock()
-
-                logger.trace(
-                        "Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}"
-                )
+                if (entriesToSend.isNotEmpty()) {
+                    logger.info(
+                            "Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}"
+                    )
+                }
 
                 val appendEntriesRequest =
                         AppendEntriesRequest(
@@ -851,48 +874,45 @@ class RaftNode(
 
                 val result = transport.appendEntries(appendEntriesRequest, peer)
 
-                if (currentCoroutineContext().job.isCancelled) {
-                    return
+                if (entries.isNotEmpty()) logger.info("Append entries result: $result")
+
+                if (currentCoroutineContext().job.isCancelled) return
+
+                mutex.writeLock().withLock {
+                    if (result.term > persistentState.currentTerm) {
+                        logger.info(
+                                "Received higher term ${result.term}, becoming follower of ${peer.id}"
+                        )
+                        becomeFollower(newTerm = result.term, currentLeaderId = peer.id)
+                        return@withLock
+                    }
+
+                    if (result.success) {
+                        replicationTracker.markSuccess(peer.id)
+                        if (entries.isNotEmpty())
+                                logger.info("Append entries successful for peer ${peer.id}")
+
+                        val newMatchIndex = peerPrevLogIndex + entriesToSend.size
+                        leaderState.matchIndex[peer.id] = newMatchIndex
+                        leaderState.nextIndex[peer.id] = newMatchIndex + 1
+                        return@replicateLogToPeer
+                    } else {
+                        // Log inconsistency, decrement nextIndex and retry
+                        leaderState.nextIndex[peer.id] =
+                                maxOf(1, (leaderState.nextIndex[peer.id] ?: 1) - 1)
+                        retryCount++
+                        logger.info(
+                                "Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}"
+                        )
+                    }
                 }
 
-                mutex.writeLock().lock()
-
-                if (result.term > persistentState.currentTerm) {
-                    logger.info(
-                            "Received higher term ${result.term}, becoming follower of ${peer.id}"
-                    )
-                    becomeFollower(newTerm = result.term, currentLeaderId = peer.id)
-                    mutex.writeLock().unlock()
-                    return
-                }
-
-                if (result.success) {
-                    replicationTracker.markSuccess(peer.id)
-                    logger.trace("Append entries successful for peer ${peer.id}")
-
-                    val newMatchIndex = peerPrevLogIndex + entriesToSend.size
-                    leaderState.matchIndex[peer.id] = newMatchIndex
-                    leaderState.nextIndex[peer.id] = newMatchIndex + 1
-
-                    mutex.writeLock().unlock()
-                    return
-                } else {
-                    // Log inconsistency, decrement nextIndex and retry
-                    leaderState.nextIndex[peer.id] =
-                            maxOf(1, (leaderState.nextIndex[peer.id] ?: 1) - 1)
-                    mutex.writeLock().unlock()
-
-                    retryCount += 1
-                    logger.info(
-                            "Append entries failed for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}"
-                    )
-
-                    // Wait before retrying with exponential backoff
-                    delay(100L * minOf(64, 1 shl retryCount))
-                }
+                // Wait before retrying with exponential backoff
+                delay(100L * minOf(64, 1 shl retryCount))
             } catch (e: Exception) {
+                val nextIndex = mutex.readLock().withLock { leaderState.nextIndex[peer.id] }
                 val errorMessage =
-                        "Append entries threw an error for ${peer.id}, retrying with earlier index, retrying with index ${leaderState.nextIndex[peer.id]}, retryCount: $retryCount, nextIndex: ${leaderState.nextIndex[peer.id]}, error: ${e}"
+                        "Append entries threw an error for ${peer.id}, retrying with earlier index, retrying with index $nextIndex, retryCount: $retryCount, nextIndex: $nextIndex, error: $e"
                 if (retryCount == 0) {
                     logger.error(errorMessage)
                 } else {
@@ -1069,59 +1089,66 @@ class RaftNode(
 
     /** Creates a snapshot of the state machine. */
     private suspend fun createSnapshot() {
-        mutex.writeLock().withLock {
+        val snapshot: Snapshot
+        val ownId: Int
+        val lastCommittedArrayIndex: Int
+
+        mutex.writeLock().lock()
+        try {
             if (persistentState.isSnapshotting) {
                 return
             }
 
-            persistentState.isSnapshotting = true
-
             val snapshotLastIndex = volatileState.commitIndex
             if (snapshotLastIndex <= persistentState.snapshot.lastIncludedIndex) {
-                persistentState.isSnapshotting = false
                 return
             }
 
-            val lastCommittedArrayIndex =
+            lastCommittedArrayIndex =
                     snapshotLastIndex - persistentState.snapshot.lastIncludedIndex - 1
             if (lastCommittedArrayIndex < 0 || lastCommittedArrayIndex >= persistentState.log.size
             ) {
-                persistentState.isSnapshotting = false
                 return
             }
+            persistentState.isSnapshotting = true
 
             val snapshotLastTerm = persistentState.log[lastCommittedArrayIndex].term
 
             // Deep copy the state machine to avoid concurrent access
-            val stateMachineCopy = mutableMapOf<String, String>()
-            stateMachineCopy.putAll(persistentState.stateMachine)
+            val stateMachineCopy = persistentState.stateMachine.toMutableMap()
 
-            val snapshot =
+            snapshot =
                     Snapshot(
                             lastIncludedIndex = snapshotLastIndex,
                             lastIncludedTerm = snapshotLastTerm,
                             stateMachine = stateMachineCopy,
                     )
-
-            val ownId = persistentState.ownPeer.id
-
+            ownId = persistentState.ownPeer.id
+        } finally {
             mutex.writeLock().unlock()
-            persistentState.persistence.saveSnapshot(snapshot, ownId)
-            mutex.writeLock().lock()
+        }
 
-            persistentState.snapshot = snapshot
+        persistentState.persistence.saveSnapshot(snapshot, ownId)
 
-            // Truncate the log after saving snapshot
-            val entriesToKeep = lastCommittedArrayIndex + 1
-            persistentState.log.subList(0, entriesToKeep).clear()
+        mutex.writeLock().lock()
+        try {
+            // Check if another snapshot was installed while we were saving
+            if (snapshot.lastIncludedIndex > persistentState.snapshot.lastIncludedIndex) {
+                persistentState.snapshot = snapshot
 
+                // Truncate the log after saving snapshot
+                val entriesToKeep = lastCommittedArrayIndex + 1
+                persistentState.log.subList(0, entriesToKeep).clear()
+
+                logger.info(
+                        "Successfully created snapshot",
+                        "lastIncludedIndex" to snapshot.lastIncludedIndex,
+                        "lastIncludedTerm" to snapshot.lastIncludedTerm
+                )
+            }
+        } finally {
             persistentState.isSnapshotting = false
-
-            logger.info(
-                    "Successfully created snapshot",
-                    "lastIncludedIndex" to snapshotLastIndex,
-                    "lastIncludedTerm" to snapshotLastTerm
-            )
+            mutex.writeLock().unlock()
         }
     }
 
@@ -1131,29 +1158,27 @@ class RaftNode(
      * @param peer The peer to send the snapshot to.
      */
     private suspend fun sendSnapshotToPeer(peer: Peer) {
+        val currentTerm: Int
+        val leaderId: Int
+        val snapshot: Snapshot
+
         mutex.writeLock().lock()
-
-        if (volatileState.state != ServerState.LEADER) {
+        try {
+            if (volatileState.state != ServerState.LEADER ||
+                            persistentState.isSendingSnapshot[peer.id] == true
+            ) {
+                return
+            }
+            persistentState.isSendingSnapshot[peer.id] = true
+            currentTerm = persistentState.currentTerm
+            leaderId = persistentState.ownPeer.id
+            snapshot = persistentState.snapshot
+        } finally {
             mutex.writeLock().unlock()
-            return
         }
-
-        if (persistentState.isSendingSnapshot[peer.id] == true) {
-            val continuation = CompletableDeferred<Unit>()
-            sendSnapshotContinuations.add(continuation)
-            mutex.writeLock().unlock()
-            continuation.await()
-            return
-        }
-
-        val currentTerm = persistentState.currentTerm
-        val leaderId = persistentState.ownPeer.id
-        val snapshot = persistentState.snapshot
-        persistentState.isSendingSnapshot[peer.id] = true
-        mutex.writeLock().unlock()
 
         logger.info(
-                "Sending InstallSnapshot RPC to $peer.id (snapshot last index: ${snapshot.lastIncludedIndex}, last term: ${snapshot.lastIncludedTerm})"
+                "Sending InstallSnapshot RPC to ${peer.id} (snapshot last index: ${snapshot.lastIncludedIndex}, last term: ${snapshot.lastIncludedTerm})"
         )
 
         val request =
@@ -1172,27 +1197,20 @@ class RaftNode(
                             "Received higher term ${response.term}, becoming follower of ${peer.id}"
                     )
                     becomeFollower(response.term, peer.id)
-                    return
+                    return@withLock
                 }
 
                 // Upon successful installation, update matchIndex and nextIndex for the peer
                 leaderState.matchIndex[peer.id] = snapshot.lastIncludedIndex
                 leaderState.nextIndex[peer.id] = snapshot.lastIncludedIndex + 1
                 logger.info(
-                        "Successfully sent snapshot to $peer.id. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?: 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?: 0}"
+                        "Successfully sent snapshot to ${peer.id}. Updated nextIndex to ${leaderState.nextIndex[peer.id] ?: 0} and matchIndex to ${leaderState.matchIndex[peer.id] ?: 0}"
                 )
-
-                sendSnapshotContinuations.forEach { it.complete(Unit) }
-                sendSnapshotContinuations.clear()
-                persistentState.isSendingSnapshot[peer.id] = false
             }
         } catch (e: Exception) {
-            logger.error("Failed to send snapshot to $peer.id: ${e.message}")
-            mutex.writeLock().withLock {
-                sendSnapshotContinuations.forEach { it.completeExceptionally(e) }
-                sendSnapshotContinuations.clear()
-                persistentState.isSendingSnapshot[peer.id] = false
-            }
+            logger.error("Failed to send snapshot to ${peer.id}: ${e.message}")
+        } finally {
+            mutex.writeLock().withLock { persistentState.isSendingSnapshot[peer.id] = false }
         }
     }
 

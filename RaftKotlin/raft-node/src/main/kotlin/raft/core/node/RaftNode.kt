@@ -339,7 +339,7 @@ class RaftNode(
             }
 
             // Reset state machine using the snapshot
-            persistentState.stateMachine = request.snapshot.stateMachine
+            persistentState.stateMachine = request.snapshot.stateMachine.toMutableMap()
 
             // Update commit and last applied indices to reflect the snapshot's state
             volatileState.commitIndex = snapshotLastIndex
@@ -1057,7 +1057,7 @@ class RaftNode(
                 if (snapshot != null) {
                     persistentState.snapshot = snapshot
                     persistentState.currentTerm = snapshot.lastIncludedTerm
-                    persistentState.stateMachine = snapshot.stateMachine
+                    persistentState.stateMachine = snapshot.stateMachine.toMutableMap()
                     volatileState.commitIndex = snapshot.lastIncludedIndex
                     volatileState.lastApplied = snapshot.lastIncludedIndex
                     logger.info(

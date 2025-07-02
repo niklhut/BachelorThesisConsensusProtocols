@@ -494,7 +494,7 @@ func (rn *RaftNode) GetDiagnostics(ctx context.Context) util.DiagnosticsResponse
 	return util.DiagnosticsResponse{
 		ID:                  rn.persistentState.OwnPeer.ID,
 		Implementation:      "Go",
-		Version:             "1.3.0",
+		Version:             "1.3.1",
 		CompactionThreshold: rn.persistentState.Config.CompactionThreshold,
 	}
 }

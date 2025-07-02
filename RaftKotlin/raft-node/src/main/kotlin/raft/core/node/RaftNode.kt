@@ -813,7 +813,7 @@ class RaftNode(
                                             persistentState.log.subList(
                                                     startIndex,
                                                     persistentState.log.size
-                                            )
+                                            ).toList()
                                         }
                                         peerNextIndex == originalLogLength + 1 -> {
                                             // Peer is up-to-date with original log, send only new

@@ -1,7 +1,7 @@
 package raft.transport.grpc
 
+import io.grpc.netty.NettyServerBuilder
 import io.grpc.Server
-import io.grpc.ServerBuilder
 import kotlinx.coroutines.*
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
@@ -56,7 +56,7 @@ class RaftGRPCServer(
         val partitionInterceptor = NetworkPartitionInterceptor()
         val partitionService = PartitionService(partitionInterceptor)
 
-        server = ServerBuilder.forPort(ownPeer.port)
+        server = NettyServerBuilder.forAddress(java.net.InetSocketAddress(ownPeer.address, ownPeer.port))
             .addService(peerService)
             .addService(clientService)
             .addService(partitionService)
@@ -64,7 +64,7 @@ class RaftGRPCServer(
             .build()
 
         server?.start()
-        logger.info("Server listening on 0.0.0.0:${ownPeer.port}")
+        logger.info("Server listening on ${ownPeer.address}:${ownPeer.port}")
 
         // Start the Raft node (won't be blocked by awaitTermination)
         val nodeJob = CoroutineScope(Dispatchers.Default).launch {

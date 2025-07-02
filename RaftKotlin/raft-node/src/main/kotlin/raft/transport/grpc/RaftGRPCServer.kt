@@ -14,6 +14,8 @@ import raft.transport.grpc.services.ClientService
 import raft.transport.grpc.services.PartitionService
 import raft.transport.grpc.services.PeerService
 import raft.transport.grpc.utils.GRPCClientPool
+import java.net.InetAddress
+import java.net.InetSocketAddress
 
 /**
  * A Raft server that uses gRPC for communication.
@@ -56,7 +58,9 @@ class RaftGRPCServer(
         val partitionInterceptor = NetworkPartitionInterceptor()
         val partitionService = PartitionService(partitionInterceptor)
 
-        server = NettyServerBuilder.forAddress(java.net.InetSocketAddress(ownPeer.address, ownPeer.port))
+        server = NettyServerBuilder.forAddress(
+            InetSocketAddress(InetAddress.getByName(ownPeer.address), ownPeer.port)
+        )
             .addService(peerService)
             .addService(clientService)
             .addService(partitionService)

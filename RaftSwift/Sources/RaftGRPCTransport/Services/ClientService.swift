@@ -64,13 +64,14 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
         }
     }
 
-    func getImplementationVersion(request: Google_Protobuf_Empty, context: ServerContext) async throws -> Raft_ImplementationVersionResponse {
-        let response = await node.getImplementationVersion()
+    func getDiagnostics(request: Google_Protobuf_Empty, context: ServerContext) async throws -> Raft_DiagnosticsResponse {
+        let response: DiagnosticsResponse = await node.getDiagnostics()
 
         return .with { grpcResponse in
             grpcResponse.id = UInt32(response.id)
             grpcResponse.implementation = response.implementation
             grpcResponse.version = response.version
+            grpcResponse.compactionThreshold = UInt32(response.compactionThreshold)
         }
     }
 }

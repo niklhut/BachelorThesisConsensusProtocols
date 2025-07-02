@@ -487,14 +487,15 @@ func (rn *RaftNode) GetTerm(ctx context.Context) util.ServerTermResponse {
 	}
 }
 
-func (rn *RaftNode) GetImplementationVersion(ctx context.Context) util.ImplementationVersionResponse {
+func (rn *RaftNode) GetDiagnostics(ctx context.Context) util.DiagnosticsResponse {
 	rn.mu.RLock()
 	defer rn.mu.RUnlock()
 
-	return util.ImplementationVersionResponse{
-		ID:             rn.persistentState.OwnPeer.ID,
-		Implementation: "Go",
-		Version:        "1.3.0",
+	return util.DiagnosticsResponse{
+		ID:                  rn.persistentState.OwnPeer.ID,
+		Implementation:      "Go",
+		Version:             "1.3.0",
+		CompactionThreshold: rn.persistentState.Config.CompactionThreshold,
 	}
 }
 

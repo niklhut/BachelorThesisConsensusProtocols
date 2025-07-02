@@ -19,7 +19,7 @@ public protocol RaftClientTransport: Sendable {
     func get(
         _ request: GetRequest,
         from peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> GetResponse
 
     /// Sends a GetDebug request to the specified peer.
@@ -33,7 +33,7 @@ public protocol RaftClientTransport: Sendable {
     func getDebug(
         _ request: GetRequest,
         from peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> GetResponse
 
     /// Sends a Put request to the specified peer.
@@ -47,7 +47,7 @@ public protocol RaftClientTransport: Sendable {
     func put(
         _ request: PutRequest,
         to peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> PutResponse
 
     /// Sends a GetServerState request to the specified peer.
@@ -58,7 +58,7 @@ public protocol RaftClientTransport: Sendable {
     /// - Throws: An error if the request could not be sent.
     func getServerState(
         of peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> ServerStateResponse
 
     /// Sends a GetTerm request to the specified peer.
@@ -69,17 +69,17 @@ public protocol RaftClientTransport: Sendable {
     /// - Throws: An error if the request could not be sent.
     func getTerm(
         of peer: Peer,
-        isolation: isolated (any Actor)
+        isolation: isolated (any Actor),
     ) async throws -> ServerTermResponse
 
-    /// Sends a GetImplementationVersion request to the specified peer.
+    /// Sends a GetDiagnostics request to the specified peer.
     /// - Parameters:
     ///   - peer: The peer to send the request to.
     ///   - isolation: The isolation to use for the request.
     /// - Returns: The response from the peer.
     /// - Throws: An error if the request could not be sent.
-    func getImplementationVersion(
+    func getDiagnostics(
         of peer: Peer,
-        isolation: isolated (any Actor)
-    ) async throws -> ImplementationVersionResponse
+        isolation: isolated (any Actor),
+    ) async throws -> DiagnosticsResponse
 }

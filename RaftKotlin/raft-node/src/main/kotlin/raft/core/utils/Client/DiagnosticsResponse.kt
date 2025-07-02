@@ -3,7 +3,7 @@ package raft.core.utils.client
 /**
  * A response to a implementation version request.
  */
-data class ImplementationVersionResponse(
+data class DiagnosticsResponse(
     /**
      * The ID of the server
      */
@@ -15,5 +15,9 @@ data class ImplementationVersionResponse(
     /**
      * The version of the Raft implementation
      */
-    val version: String
+    val version: String,
+    /**
+     * The compaction threshold of the server
+     */
+    val compactionThreshold: Int
 )

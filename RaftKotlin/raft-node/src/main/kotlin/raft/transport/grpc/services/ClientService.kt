@@ -5,11 +5,11 @@ import raft.Client
 import raft.RaftClientGrpcKt
 import raft.core.node.RaftNode
 import raft.core.utils.client.*
+import raft.diagnosticsResponse
 import raft.putResponse
 import raft.getResponse
 import raft.serverStateResponse
 import raft.serverTermResponse
-import raft.implementationVersionResponse
 import raft.transport.grpc.utils.extensions.toGRPC
 
 /**
@@ -70,13 +70,14 @@ class ClientService(
         }
     }
 
-    override suspend fun getImplementationVersion(request: Empty): Client.ImplementationVersionResponse {
-        val response = node.getImplementationVersion()
+    override suspend fun getDiagnostics(request: Empty): Client.DiagnosticsResponse {
+        val response = node.getDiagnostics()
 
-        return implementationVersionResponse {
+        return diagnosticsResponse {
             id = response.id
             implementation = response.implementation
             version = response.version
+            compactionThreshold = response.compactionThreshold
         }
     }
 }

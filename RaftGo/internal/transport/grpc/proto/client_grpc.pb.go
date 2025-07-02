@@ -20,12 +20,12 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RaftClient_Put_FullMethodName                      = "/raft.RaftClient/Put"
-	RaftClient_Get_FullMethodName                      = "/raft.RaftClient/Get"
-	RaftClient_GetDebug_FullMethodName                 = "/raft.RaftClient/GetDebug"
-	RaftClient_GetServerState_FullMethodName           = "/raft.RaftClient/GetServerState"
-	RaftClient_GetServerTerm_FullMethodName            = "/raft.RaftClient/GetServerTerm"
-	RaftClient_GetImplementationVersion_FullMethodName = "/raft.RaftClient/GetImplementationVersion"
+	RaftClient_Put_FullMethodName            = "/raft.RaftClient/Put"
+	RaftClient_Get_FullMethodName            = "/raft.RaftClient/Get"
+	RaftClient_GetDebug_FullMethodName       = "/raft.RaftClient/GetDebug"
+	RaftClient_GetServerState_FullMethodName = "/raft.RaftClient/GetServerState"
+	RaftClient_GetServerTerm_FullMethodName  = "/raft.RaftClient/GetServerTerm"
+	RaftClient_GetDiagnostics_FullMethodName = "/raft.RaftClient/GetDiagnostics"
 )
 
 // RaftClientClient is the client API for RaftClient service.
@@ -44,8 +44,8 @@ type RaftClientClient interface {
 	GetServerState(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServerStateResponse, error)
 	// Get the term of a server
 	GetServerTerm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServerTermResponse, error)
-	// Get the implementation version of a server
-	GetImplementationVersion(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ImplementationVersionResponse, error)
+	// Get the diagnostics of a server
+	GetDiagnostics(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DiagnosticsResponse, error)
 }
 
 type raftClientClient struct {
@@ -106,10 +106,10 @@ func (c *raftClientClient) GetServerTerm(ctx context.Context, in *emptypb.Empty,
 	return out, nil
 }
 
-func (c *raftClientClient) GetImplementationVersion(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ImplementationVersionResponse, error) {
+func (c *raftClientClient) GetDiagnostics(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DiagnosticsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ImplementationVersionResponse)
-	err := c.cc.Invoke(ctx, RaftClient_GetImplementationVersion_FullMethodName, in, out, cOpts...)
+	out := new(DiagnosticsResponse)
+	err := c.cc.Invoke(ctx, RaftClient_GetDiagnostics_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -132,8 +132,8 @@ type RaftClientServer interface {
 	GetServerState(context.Context, *emptypb.Empty) (*ServerStateResponse, error)
 	// Get the term of a server
 	GetServerTerm(context.Context, *emptypb.Empty) (*ServerTermResponse, error)
-	// Get the implementation version of a server
-	GetImplementationVersion(context.Context, *emptypb.Empty) (*ImplementationVersionResponse, error)
+	// Get the diagnostics of a server
+	GetDiagnostics(context.Context, *emptypb.Empty) (*DiagnosticsResponse, error)
 	mustEmbedUnimplementedRaftClientServer()
 }
 
@@ -159,8 +159,8 @@ func (UnimplementedRaftClientServer) GetServerState(context.Context, *emptypb.Em
 func (UnimplementedRaftClientServer) GetServerTerm(context.Context, *emptypb.Empty) (*ServerTermResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServerTerm not implemented")
 }
-func (UnimplementedRaftClientServer) GetImplementationVersion(context.Context, *emptypb.Empty) (*ImplementationVersionResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetImplementationVersion not implemented")
+func (UnimplementedRaftClientServer) GetDiagnostics(context.Context, *emptypb.Empty) (*DiagnosticsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetDiagnostics not implemented")
 }
 func (UnimplementedRaftClientServer) mustEmbedUnimplementedRaftClientServer() {}
 func (UnimplementedRaftClientServer) testEmbeddedByValue()                    {}
@@ -273,20 +273,20 @@ func _RaftClient_GetServerTerm_Handler(srv interface{}, ctx context.Context, dec
 	return interceptor(ctx, in, info, handler)
 }
 
-func _RaftClient_GetImplementationVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+func _RaftClient_GetDiagnostics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(emptypb.Empty)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(RaftClientServer).GetImplementationVersion(ctx, in)
+		return srv.(RaftClientServer).GetDiagnostics(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: RaftClient_GetImplementationVersion_FullMethodName,
+		FullMethod: RaftClient_GetDiagnostics_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftClientServer).GetImplementationVersion(ctx, req.(*emptypb.Empty))
+		return srv.(RaftClientServer).GetDiagnostics(ctx, req.(*emptypb.Empty))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -319,8 +319,8 @@ var RaftClient_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _RaftClient_GetServerTerm_Handler,
 		},
 		{
-			MethodName: "GetImplementationVersion",
-			Handler:    _RaftClient_GetImplementationVersion_Handler,
+			MethodName: "GetDiagnostics",
+			Handler:    _RaftClient_GetDiagnostics_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

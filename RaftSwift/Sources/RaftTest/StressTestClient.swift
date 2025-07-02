@@ -129,7 +129,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Returns: A tuple containing the success status and latency
     private func putEntry(
         _ value: PutRequest,
-        startTime: Date = Date()
+        startTime: Date = Date(),
     ) async -> (success: Bool, latency: Double) {
         guard let currentLeader = leader else {
             return (false, 0)
@@ -189,24 +189,26 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameter result: The result of the stress test
     private func sendStressTestData(_ result: RaftStressTestResult) async throws {
         // First get client implementation versions
-        let clientImplementationVersions = try await withThrowingTaskGroup(of: ImplementationVersionResponse.self) { group in
+        let clientDiagnostics = try await withThrowingTaskGroup(of: DiagnosticsResponse.self) { group in
             for peer in client.peers {
                 group.addTask {
-                    try await self.client.getImplementationVersion(of: peer)
+                    try await self.client.getDiagnostics(of: peer)
                 }
             }
 
-            var implementationVersions = [ImplementationVersionResponse]()
+            var diagnostics = [DiagnosticsResponse]()
             for try await version in group {
-                implementationVersions.append(version)
+                diagnostics.append(version)
             }
-            return implementationVersions
+            return diagnostics
         }
 
-        let implementationVersions = clientImplementationVersions.map { (implementation: $0.implementation, version: $0.version) }
-
-        guard let implementationVersion = implementationVersions.first else { return }
-        if !implementationVersions.allSatisfy({ $0 == implementationVersion }) {
+        guard let implementationVersion = clientDiagnostics.first else { return }
+        if !clientDiagnostics.allSatisfy({
+            $0.implementation == implementationVersion.implementation &&
+                $0.version == implementationVersion.version &&
+                $0.compactionThreshold == implementationVersion.compactionThreshold
+        }) {
             logger.error("Implementation versions do not match across all nodes")
         }
 
@@ -223,6 +225,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             averageThroughput: result.averageThroughput,
             totalDuration: result.totalDuration,
             concurrency: result.concurrency,
+            compactionThreshold: implementationVersion.compactionThreshold,
             machine: machineName,
             numberOfPeers: result.numberOfPeers,
             peerVersion: RaftImplementationVersion(

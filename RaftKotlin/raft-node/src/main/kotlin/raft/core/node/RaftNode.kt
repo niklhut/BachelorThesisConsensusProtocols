@@ -445,12 +445,13 @@ class RaftNode(
      *
      * @return The ImplementationVersionResponse.
      */
-    public suspend fun getImplementationVersion(): ImplementationVersionResponse {
+    public suspend fun getDiagnostics(): DiagnosticsResponse {
         mutex.readLock().withLock {
-            return ImplementationVersionResponse(
+            return DiagnosticsResponse(
                     id = persistentState.ownPeer.id,
                     implementation = "Kotlin",
                     version = "1.3.0",
+                    compactionThreshold = persistentState.currentTerm
             )
         }
     }

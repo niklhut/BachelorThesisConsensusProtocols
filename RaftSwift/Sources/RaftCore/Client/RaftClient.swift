@@ -99,14 +99,14 @@ public actor RaftClient<Transport: RaftClientTransport> {
         try await transport.getTerm(of: peer, isolation: #isolation)
     }
 
-    /// Sends a GetImplementationVersion request to the specified peer.
+    /// Sends a GetDiagnostics request to the specified peer.
     /// - Parameters:
     ///   - peer: The peer to send the request to.
     ///   - isolation: The isolation to use for the request.
     /// - Returns: The response from the peer.
     /// - Throws: An error if the request could not be sent.
-    public func getImplementationVersion(of peer: Peer) async throws -> ImplementationVersionResponse {
-        try await transport.getImplementationVersion(of: peer, isolation: #isolation)
+    public func getDiagnostics(of peer: Peer) async throws -> DiagnosticsResponse {
+        try await transport.getDiagnostics(of: peer, isolation: #isolation)
     }
 
     // MARK: - Helpers

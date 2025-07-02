@@ -73,12 +73,13 @@ func (s *RaftClientService) GetServerTerm(ctx context.Context, _ *emptypb.Empty)
 	}, nil
 }
 
-func (s *RaftClientService) GetImplementationVersion(ctx context.Context, _ *emptypb.Empty) (*proto.ImplementationVersionResponse, error) {
-	version := s.node.GetImplementationVersion(ctx)
-	return &proto.ImplementationVersionResponse{
-		Id:             uint32(version.ID),
-		Implementation: version.Implementation,
-		Version:        version.Version,
+func (s *RaftClientService) GetDiagnostics(ctx context.Context, _ *emptypb.Empty) (*proto.DiagnosticsResponse, error) {
+	version := s.node.GetDiagnostics(ctx)
+	return &proto.DiagnosticsResponse{
+		Id:                  uint32(version.ID),
+		Implementation:      version.Implementation,
+		Version:             version.Version,
+		CompactionThreshold: uint32(version.CompactionThreshold),
 	}, nil
 }
 

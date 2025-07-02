@@ -23,8 +23,8 @@ service RaftClient {
   // Get the term of a server
   rpc GetServerTerm(google.protobuf.Empty) returns (ServerTermResponse) {}
 
-  // Get the implementation version of a server
-  rpc GetImplementationVersion(google.protobuf.Empty) returns (ImplementationVersionResponse) {}
+  // Get the diagnostics of a server
+  rpc GetDiagnostics(google.protobuf.Empty) returns (DiagnosticsResponse) {}
 }
 
 // Request to store or update a key-value pair
@@ -76,8 +76,8 @@ message ServerTermResponse {
   uint64 term = 2;
 }
 
-// Response containing the implementation version of the server
-message ImplementationVersionResponse {
+// Response containing the diagnostics of the server
+message DiagnosticsResponse {
   // The ID of the server
   uint32 id = 1;
 
@@ -86,4 +86,7 @@ message ImplementationVersionResponse {
 
   // The version of the Raft implementation
   string version = 3;
+
+  // The compaction threshold of the server
+  uint32 compaction_threshold = 4;
 }

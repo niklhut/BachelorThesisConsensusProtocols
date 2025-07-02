@@ -28,6 +28,7 @@ struct RaftStressTestPayload: Codable {
     let averageThroughput: Double
     let totalDuration: Double
     let concurrency: Int
+    let compactionThreshold: Int
     let machine: String
     let numberOfPeers: Int
     let peerVersion: RaftImplementationVersion

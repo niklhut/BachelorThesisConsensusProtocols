@@ -1,5 +1,5 @@
-/// Node to Client, response to GetImplementationVersionRequest
-public struct ImplementationVersionResponse: Sendable, Codable {
+/// Node to Client, response to GetDiagnosticsRequest
+public struct DiagnosticsResponse: Sendable, Codable {
     /// The ID of the server
     public let id: Int
 
@@ -9,14 +9,19 @@ public struct ImplementationVersionResponse: Sendable, Codable {
     /// The version of the Raft implementation
     public let version: String
 
-    /// Initializes a new ImplementationVersionResponse
+    /// The compaction threshold of the server
+    public let compactionThreshold: Int
+
+    /// Initializes a new DiagnosticsResponse
     /// - Parameters:
     ///   - id: The ID of the server
     ///   - implementation: The implementation version of the server
     ///   - version: The version of the Raft implementation
-    public init(id: Int, implementation: String, version: String) {
+    ///   - compactionThreshold: The compaction threshold of the server
+    public init(id: Int, implementation: String, version: String, compactionThreshold: Int) {
         self.id = id
         self.implementation = implementation
         self.version = version
+        self.compactionThreshold = compactionThreshold
     }
 }

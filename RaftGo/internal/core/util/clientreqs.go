@@ -51,7 +51,7 @@ type ServerTermResponse struct {
 	Term int `json:"term"`
 }
 
-type ImplementationVersionResponse struct {
+type DiagnosticsResponse struct {
 	// The ID of the server
 	ID int `json:"id"`
 
@@ -60,4 +60,7 @@ type ImplementationVersionResponse struct {
 
 	// The version of the Raft implementation
 	Version string `json:"version"`
+
+	// The compaction threshold of the server
+	CompactionThreshold int `json:"compactionThreshold"`
 }

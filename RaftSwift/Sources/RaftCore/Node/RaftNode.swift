@@ -338,14 +338,15 @@ public actor RaftNode {
         )
     }
 
-    /// Handles a GetImplementationVersion RPC.
+    /// Handles a GetDiagnostics RPC.
     ///
-    /// - Returns: The ImplementationVersionResponse.
-    public func getImplementationVersion() async -> ImplementationVersionResponse {
-        ImplementationVersionResponse(
+    /// - Returns: The DiagnosticsResponse.
+    public func getDiagnostics() async -> DiagnosticsResponse {
+        DiagnosticsResponse(
             id: persistentState.ownPeer.id,
             implementation: "Swift",
             version: "1.3.0",
+            compactionThreshold: persistentState.config.compactionThreshold,
         )
     }
 

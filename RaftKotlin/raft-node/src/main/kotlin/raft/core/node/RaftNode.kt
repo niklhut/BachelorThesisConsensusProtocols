@@ -441,9 +441,9 @@ class RaftNode(
     }
 
     /**
-     * Handles a GetImplementationVersion RPC.
+     * Handles a GetDiagnostics RPC.
      *
-     * @return The ImplementationVersionResponse.
+     * @return The DiagnosticsResponse.
      */
     public suspend fun getDiagnostics(): DiagnosticsResponse {
         mutex.readLock().withLock {

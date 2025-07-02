@@ -45,7 +45,7 @@ final class GRPCClientTransport: RaftClientTransport {
     func get(
         _ request: GetRequest,
         from peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> GetResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
             let response = try await client.get(.with { grpcRequest in
@@ -68,7 +68,7 @@ final class GRPCClientTransport: RaftClientTransport {
     func getDebug(
         _ request: GetRequest,
         from peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> GetResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
             let response = try await client.getDebug(.with { grpcRequest in
@@ -90,7 +90,7 @@ final class GRPCClientTransport: RaftClientTransport {
     func put(
         _ request: PutRequest,
         to peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> PutResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
             let response = try await client.put(.with { grpcRequest in
@@ -115,7 +115,7 @@ final class GRPCClientTransport: RaftClientTransport {
 
     func getServerState(
         of peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> ServerStateResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
             let response = try await client.getServerState(Google_Protobuf_Empty())
@@ -129,7 +129,7 @@ final class GRPCClientTransport: RaftClientTransport {
 
     func getTerm(
         of peer: Peer,
-        isolation: isolated any Actor
+        isolation: isolated any Actor,
     ) async throws -> ServerTermResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
             let response = try await client.getServerTerm(Google_Protobuf_Empty())
@@ -141,17 +141,18 @@ final class GRPCClientTransport: RaftClientTransport {
         }
     }
 
-    func getImplementationVersion(
+    func getDiagnostics(
         of peer: Peer,
-        isolation: isolated any Actor
-    ) async throws -> ImplementationVersionResponse {
+        isolation: isolated any Actor,
+    ) async throws -> DiagnosticsResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
-            let response = try await client.getImplementationVersion(Google_Protobuf_Empty())
+            let response = try await client.getDiagnostics(Google_Protobuf_Empty())
 
-            return ImplementationVersionResponse(
+            return DiagnosticsResponse(
                 id: Int(response.id),
                 implementation: response.implementation + " (GRPC)",
                 version: response.version,
+                compactionThreshold: Int(response.compactionThreshold),
             )
         }
     }

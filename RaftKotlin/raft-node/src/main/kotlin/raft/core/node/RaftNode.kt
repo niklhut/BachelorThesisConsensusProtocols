@@ -712,10 +712,10 @@ class RaftNode(
             }
         }
 
-        if (entries.isNotEmpty()) logger.info("Waiting for majority to have replicated the log")
+        logger.trace("Waiting for majority to have replicated the log")
         // Wait for majority to have replicated the log before returning
         replicationTracker.waitForMajority()
-        if (entries.isNotEmpty()) logger.info("Majority of peers have replicated the log")
+        logger.trace("Majority of peers have replicated the log")
 
         // Once majority has replicated the log, update commit index
         // and apply committed entries
@@ -821,7 +821,8 @@ class RaftNode(
                                             entries
                                         }
                                         else -> {
-                                            // Peer's nextIndex is beyond what we expect - this shouldn't happen
+                                            // Peer's nextIndex is beyond what we expect - this
+                                            // shouldn't happen
                                             // Reset nextIndex and retry
 
                                             logger.warn(
@@ -856,11 +857,9 @@ class RaftNode(
 
                 val peerPrevLogIndex = peerNextIndex - 1
 
-                if (entriesToSend.isNotEmpty()) {
-                    logger.info(
-                            "Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}"
-                    )
-                }
+                logger.trace(
+                        "Sending append entries to ${peer.id} with nextIndex: $peerNextIndex, prevLogIndex: $peerPrevLogIndex, prevLogTerm: $peerPrevLogTerm, entries.count: ${entriesToSend.size}"
+                )
 
                 val appendEntriesRequest =
                         AppendEntriesRequest(
@@ -874,7 +873,7 @@ class RaftNode(
 
                 val result = transport.appendEntries(appendEntriesRequest, peer)
 
-                if (entries.isNotEmpty()) logger.info("Append entries result: $result")
+                logger.trace("Append entries result: $result")
 
                 if (currentCoroutineContext().job.isCancelled) return
 
@@ -889,8 +888,7 @@ class RaftNode(
 
                     if (result.success) {
                         replicationTracker.markSuccess(peer.id)
-                        if (entries.isNotEmpty())
-                                logger.info("Append entries successful for peer ${peer.id}")
+                        logger.trace("Append entries successful for peer ${peer.id}")
 
                         val newMatchIndex = peerPrevLogIndex + entriesToSend.size
                         leaderState.matchIndex[peer.id] = newMatchIndex

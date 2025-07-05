@@ -59,7 +59,7 @@ class RaftGRPCServer(
         val partitionService = PartitionService(partitionInterceptor)
 
         server = NettyServerBuilder.forAddress(
-            InetSocketAddress(InetAddress.getByName(ownPeer.address), ownPeer.port)
+            InetSocketAddress("0.0.0.0", ownPeer.port)
         )
             .addService(peerService)
             .addService(clientService)
@@ -68,7 +68,7 @@ class RaftGRPCServer(
             .build()
 
         server?.start()
-        logger.info("Server listening on ${ownPeer.address}:${ownPeer.port}")
+        logger.info("Server listening on ${server?.listenSockets?.joinToString(", ")} with peers ${peers.joinToString(", ")}")
 
         // Start the Raft node (won't be blocked by awaitTermination)
         val nodeJob = CoroutineScope(Dispatchers.Default).launch {

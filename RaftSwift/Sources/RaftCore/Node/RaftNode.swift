@@ -345,7 +345,7 @@ public actor RaftNode {
         DiagnosticsResponse(
             id: persistentState.ownPeer.id,
             implementation: "Swift",
-            version: "1",
+            version: "1.3.1",
             compactionThreshold: persistentState.config.compactionThreshold,
         )
     }

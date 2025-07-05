@@ -346,7 +346,7 @@ public actor RaftNode {
             id: persistentState.ownPeer.id,
             implementation: "Swift",
             version: "1.3.1",
-            compactionThreshold: persistentState.config.compactionThreshold,
+            compactionThreshold: persistentState.persistence.compactionThreshold,
         )
     }
 

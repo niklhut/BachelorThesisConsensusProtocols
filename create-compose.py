@@ -1,7 +1,7 @@
 import argparse
 import yaml
 
-def generate_compose(num_peers, use_actors, image, client_image, operations):
+def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, compaction_threshold: int):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -23,7 +23,8 @@ def generate_compose(num_peers, use_actors, image, client_image, operations):
             "--id", str(i),
             "--port", port,
             "--address", container_name,
-            "--peers", peer_peers
+            "--peers", peer_peers,
+            "--compaction-threshold", str(compaction_threshold),
         ]
         if use_actors:
             peer_command.append("--use-distributed-actor-system")
@@ -38,7 +39,7 @@ def generate_compose(num_peers, use_actors, image, client_image, operations):
     # Client node
     raw_client_cmd = [
         "./Raft", "client",
-        "--peers", peers,
+        "--peers", str(peers),
         "--stress-test",
         "--operations", str(operations),
     ]
@@ -81,9 +82,10 @@ def main():
     parser.add_argument("--image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--client-image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--operations", type=int, default=20000, help="Number of operations to perform")
+    parser.add_argument("--compaction-threshold", type=int, default=1000, help="Compaction threshold")
     args = parser.parse_args()
 
-    compose_yaml = generate_compose(args.peers, args.actors, args.image, args.client_image, args.operations)
+    compose_yaml = generate_compose(args.image, args.client_image, args.peers, args.actors, args.operations, args.compaction_threshold)
 
     with open(args.output, "w") as f:
         yaml.dump(compose_yaml, f, default_flow_style=False, sort_keys=False)

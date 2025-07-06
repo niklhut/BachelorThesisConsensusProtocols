@@ -2,5 +2,6 @@
 **/.vscode
 docker-compose.yml
 .env
+__pycache__
 
 **/raft-snapshots

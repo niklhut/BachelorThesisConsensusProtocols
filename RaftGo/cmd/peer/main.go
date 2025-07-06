@@ -25,7 +25,7 @@ func main() {
 			port, _ := cmd.Flags().GetInt("port")
 			rawPeers, _ := cmd.Flags().GetString("peers")
 			persistenceType, _ := cmd.Flags().GetString("persistence")
-			compactionThreshold, _ := cmd.Flags().GetInt("compactionThreshold")
+			compactionThreshold, _ := cmd.Flags().GetInt("compaction-threshold")
 			var persistence node.RaftNodePersistence
 			switch persistenceType {
 			case "file":
@@ -57,7 +57,7 @@ func main() {
 	rootCmd.Flags().Int("port", 10001, "Port to listen on")
 	rootCmd.Flags().String("peers", "", "Comma-separated list of peers in 'id:host:port' format")
 	rootCmd.Flags().String("persistence", "inMemory", "Persistence type (file, inMemory)")
-	rootCmd.Flags().Int("compactionThreshold", 1000, "Compaction threshold")
+	rootCmd.Flags().Int("compaction-threshold", 1000, "Compaction threshold")
 
 	if err := rootCmd.Execute(); err != nil {
 		log.Fatalf("error: %v", err)

@@ -21,11 +21,15 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// The leader of the cluster.
     var leader: Peer?
 
+    /// The test suite name.
+    var testSuite: String?
+
     /// Initializes a new instance of the StressTestClient class.
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient<Transport>) {
+    public init(client: RaftClient<Transport>, testSuite: String?) {
         self.client = client
+        self.testSuite = testSuite
     }
 
     /// Runs the stress test client.
@@ -232,6 +236,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                 implementation: implementationVersion.implementation,
                 version: implementationVersion.version,
             ),
+            testSuite: testSuite,
         )
 
         var request = URLRequest(url: url)

@@ -36,6 +36,9 @@ final class Client: AsyncParsableCommand {
     @Option(help: "Concurrency level for stress test")
     var concurrency: Int = 10
 
+    @Option(help: "Test suite name")
+    var testSuite: String = ""
+
     // MARK: - Transport
 
     @Flag(help: "Use Distributed Actor System for transport")
@@ -55,7 +58,7 @@ final class Client: AsyncParsableCommand {
         } else if tests {
             try await client.runFunctionalityTests()
         } else if stressTest {
-            try await client.runStressTest(operations: operations, concurrency: concurrency)
+            try await client.runStressTest(operations: operations, concurrency: concurrency, testSuiteName: testSuite)
         }
     }
 }

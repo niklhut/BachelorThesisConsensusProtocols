@@ -32,6 +32,7 @@ struct RaftStressTestPayload: Codable {
     let machine: String
     let numberOfPeers: Int
     let peerVersion: RaftImplementationVersion
+    let testSuite: String?
 }
 
 struct RaftImplementationVersion: Codable {

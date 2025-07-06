@@ -33,10 +33,10 @@ public final class RaftGRPCClient: RaftTestApplication {
         try await interactiveConsoleClient.run()
     }
 
-    public func runStressTest(operations: Int, concurrency: Int) async throws {
+    public func runStressTest(operations: Int, concurrency: Int, testSuiteName: String) async throws {
         let client = try await setupClient()
 
-        let stressTestClient = StressTestClient(client: client)
+        let stressTestClient = StressTestClient(client: client, testSuite: testSuiteName)
 
         try await stressTestClient.run(operations: operations, concurrency: concurrency)
     }

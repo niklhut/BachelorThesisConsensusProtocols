@@ -13,7 +13,7 @@ public protocol RaftTestApplication: Sendable {
 
     /// Runs the stress test
     /// - Throws: Any errors thrown by the client
-    func runStressTest(operations: Int, concurrency: Int) async throws
+    func runStressTest(operations: Int, concurrency: Int, testSuiteName: String) async throws
 
     /// Runs the functionality tests
     /// - Throws: Any errors thrown by the client or test suite

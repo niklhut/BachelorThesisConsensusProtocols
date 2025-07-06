@@ -1,7 +1,9 @@
 import argparse
 import yaml
+from datetime import datetime
+import shlex
 
-def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, compaction_threshold: int):
+def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, compaction_threshold: int, test_suite: str = None):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -43,11 +45,14 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
         "--stress-test",
         "--operations", str(operations),
     ]
+    if test_suite:
+        raw_client_cmd.extend(["--test-suite", test_suite])
     if use_actors:
         raw_client_cmd.append("--use-distributed-actor-system")
 
     # Join the command into a single shell string with a sleep
-    client_shell_cmd = f"sleep 5 && {' '.join(raw_client_cmd)}"
+    quoted_cmd = ' '.join(shlex.quote(arg) for arg in raw_client_cmd)
+    client_shell_cmd = f"sleep 5 && {quoted_cmd}"
 
     services["raft_client"] = {
         "image": client_image,
@@ -83,14 +88,31 @@ def main():
     parser.add_argument("--client-image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--operations", type=int, default=20000, help="Number of operations to perform")
     parser.add_argument("--compaction-threshold", type=int, default=1000, help="Compaction threshold")
+    default_test_suite = f"Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    parser.add_argument("--test-suite", type=str, default=default_test_suite, help=f"Name of the test suite to run (default: {default_test_suite})")
     args = parser.parse_args()
 
-    compose_yaml = generate_compose(args.image, args.client_image, args.peers, args.actors, args.operations, args.compaction_threshold)
+    compose_yaml = generate_compose(
+        image=args.image,
+        client_image=args.client_image,
+        num_peers=args.peers,
+        use_actors=args.actors,
+        operations=args.operations,
+        compaction_threshold=args.compaction_threshold,
+        test_suite=args.test_suite
+    )
 
     with open(args.output, "w") as f:
         yaml.dump(compose_yaml, f, default_flow_style=False, sort_keys=False)
 
-    print(f"Generated {args.output} for {args.peers} peers with actors={args.actors}")
+    print("Generated configuration:")
+    print(f"  Output file: {args.output}")
+    print(f"  Number of peers: {args.peers}")
+    print(f"  Use actors: {args.actors}")
+    print(f"  Operations: {args.operations}")
+    print(f"  Compaction threshold: {args.compaction_threshold}")
+    if args.test_suite:
+        print(f"  Test suite: {args.test_suite}")
 
 if __name__ == "__main__":
     main()

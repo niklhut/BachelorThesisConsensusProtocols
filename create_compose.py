@@ -68,7 +68,6 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
     }
 
     compose = {
-        "version": "3.8",
         "services": services,
         "networks": {
             network_name: {

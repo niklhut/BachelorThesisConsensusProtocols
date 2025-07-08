@@ -315,7 +315,15 @@ class RaftNode(
 
             // Save snapshot
             val oldSnapshotLastIndex = persistentState.snapshot.lastIncludedIndex
-            persistentState.persistence.saveSnapshot(request.snapshot, persistentState.ownPeer.id)
+            try {
+                persistentState.persistence.saveSnapshot(
+                        request.snapshot,
+                        persistentState.ownPeer.id
+                )
+            } catch (e: Exception) {
+                logger.error("Failed to save snapshot: $e")
+                return InstallSnapshotResponse(term = persistentState.currentTerm)
+            }
             persistentState.snapshot = request.snapshot
 
             val snapshotLastIndex = request.snapshot.lastIncludedIndex
@@ -375,9 +383,14 @@ class RaftNode(
         val term = persistentState.currentTerm
         mutex.readLock().unlock()
 
-        replicateLog(
-                entries = listOf(LogEntry(term = term, key = request.key, value = request.value))
-        )
+        try {
+            replicateLog(
+                    entries = listOf(LogEntry(term = term, key = request.key, value = request.value))
+            )
+        } catch (e: Exception) {
+            logger.error("Failed to replicate log entry", e)
+            return PutResponse(success = false)
+        }
 
         return PutResponse(success = true)
     }
@@ -1065,7 +1078,7 @@ class RaftNode(
                 }
             }
         } catch (e: Exception) {
-            logger.error("Failed to load snapshot: ${e.message}")
+            logger.error("Failed to load snapshot", e)
         }
     }
 
@@ -1127,17 +1140,26 @@ class RaftNode(
             mutex.writeLock().unlock()
         }
 
-        persistentState.persistence.saveSnapshot(snapshot, ownId)
+        try {
+            persistentState.persistence.saveSnapshot(snapshot, ownId)
+        } catch (e: Exception) {
+            logger.error("Failed to save snapshot", e)
+            mutex.writeLock().withLock { persistentState.isSnapshotting = false }
+            return
+        }
 
         mutex.writeLock().lock()
         try {
             // Check if another snapshot was installed while we were saving
             if (snapshot.lastIncludedIndex > persistentState.snapshot.lastIncludedIndex) {
+                val entriesToRemove = snapshot.lastIncludedIndex - persistentState.snapshot.lastIncludedIndex
                 persistentState.snapshot = snapshot
 
                 // Truncate the log after saving snapshot
-                val entriesToKeep = lastCommittedArrayIndex + 1
-                persistentState.log.subList(0, entriesToKeep).clear()
+                if (entriesToRemove > 0) {
+                    val toIndex = minOf(entriesToRemove, persistentState.log.size)
+                    persistentState.log.subList(0, toIndex).clear()
+                }
 
                 logger.info(
                         "Successfully created snapshot",

@@ -1191,7 +1191,7 @@ func (rn *RaftNode) isLogAtLeastAsUpToDate(lastLogIndex int, lastLogTerm int) bo
 		return lastLogTerm > localLastLogTerm
 	}
 
-	localLastLogIndex := len(rn.persistentState.Log)
+	localLastLogIndex := rn.persistentState.LogLength()
 	return lastLogIndex >= localLastLogIndex
 }
 

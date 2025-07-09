@@ -562,7 +562,7 @@ func (rn *RaftNode) heartbeatLoop(ctx context.Context) {
 			timeout = time.Duration(heartbeatInterval) * time.Millisecond
 			action = rn.sendHeartbeat
 		} else {
-			timeout = time.Duration(heartbeatInterval) * time.Millisecond
+			timeout = time.Duration(heartbeatInterval) * time.Millisecond * 3
 			action = rn.checkElectionTimeout
 		}
 

@@ -25,13 +25,15 @@ except ImportError:
     generate_compose = None
 
 class RaftTestRunner:
-    def __init__(self, test_suite_name: str = None):
+    def __init__(self, test_suite_name: str = None, timeout: int = 70, retries: int = 1):
         self.test_suite_name = test_suite_name or f"Raft Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         self.docker_client = docker.from_env()
         self.current_test = 0
         self.total_tests = 0
         self.results = []
         self.interrupted = False
+        self.timeout = timeout
+        self.retries = retries
 
         # Setup logging
         logging.basicConfig(
@@ -195,13 +197,13 @@ class RaftTestRunner:
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
 
-    def _wait_for_client_completion(self, compose_file: str, timeout: int = 1800) -> bool:
-        """Wait for the client container to complete and return success status"""
+    def _wait_for_client_completion(self, compose_file: str, timeout: int) -> str:
+        """Wait for the client container to complete and return 'SUCCESS', 'FAILED', 'TIMEOUT', or 'INTERRUPTED'."""
         start_time = time.time()
 
         while time.time() - start_time < timeout:
             if self.interrupted:
-                return False
+                return "INTERRUPTED"
 
             try:
                 # Check client container status
@@ -210,7 +212,7 @@ class RaftTestRunner:
                 if client_container.status == 'exited':
                     exit_code = client_container.attrs['State']['ExitCode']
                     self.logger.info(f"Client container exited with code: {exit_code}")
-                    return exit_code == 0
+                    return "SUCCESS" if exit_code == 0 else "FAILED"
 
             except docker.errors.NotFound:
                 # Container doesn't exist yet, wait a bit more
@@ -221,10 +223,10 @@ class RaftTestRunner:
             time.sleep(5)
 
         self.logger.error("Timeout waiting for client completion")
-        return False
+        return "TIMEOUT"
 
     def _run_single_test(self, params: Dict[str, Any], client_image: str) -> Dict[str, Any]:
-        """Run a single test configuration"""
+        """Run a single test configuration with retry logic."""
         self.current_test += 1
         test_name = f"Test {self.current_test}/{self.total_tests}"
 
@@ -232,69 +234,79 @@ class RaftTestRunner:
         self.logger.info(f"Parameters: {params}")
 
         start_time = time.time()
-        compose_file = None
+        last_error = ""
 
-        try:
-            # Generate compose file
-            compose_file = self._generate_compose_file(params, client_image)
+        for attempt in range(self.retries + 1):
+            if attempt > 0:
+                self.logger.info(f"Retrying... Attempt {attempt + 1}/{self.retries + 1}")
 
-            # Start containers
-            self.logger.info("Starting containers...")
-            result = subprocess.run(
-                ["docker-compose", "-f", compose_file, "up", "-d"],
-                capture_output=True, text=True
-            )
-
-            if result.returncode != 0:
-                raise RuntimeError(f"Failed to start containers: {result.stderr}")
-
-            # Wait for client to complete
-            self.logger.info("Waiting for test completion...")
-            success = self._wait_for_client_completion(compose_file)
-
-            # Get logs from client
+            compose_file = None
             try:
-                client_container = self.docker_client.containers.get('raft_client')
-                logs = client_container.logs().decode('utf-8')
-            except:
+                compose_file = self._generate_compose_file(params, client_image)
+
+                self.logger.info("Starting containers...")
+                proc = subprocess.run(
+                    ["docker-compose", "-f", compose_file, "up", "-d"],
+                    capture_output=True, text=True
+                )
+                if proc.returncode != 0:
+                    raise RuntimeError(f"Failed to start containers: {proc.stderr}")
+
+                self.logger.info(f"Waiting for test completion (timeout: {self.timeout}s)...")
+                status = self._wait_for_client_completion(compose_file, timeout=self.timeout)
+
                 logs = "Could not retrieve logs"
-
-            end_time = time.time()
-            duration = end_time - start_time
-
-            result = {
-                'test_number': self.current_test,
-                'parameters': params,
-                'success': success,
-                'duration': duration,
-                'logs': logs,
-                'timestamp': datetime.now().isoformat()
-            }
-
-            self.logger.info(f"{test_name} completed in {duration:.2f}s - {'SUCCESS' if success else 'FAILED'}")
-            return result
-
-        except Exception as e:
-            self.logger.error(f"{test_name} failed with error: {e}")
-            return {
-                'test_number': self.current_test,
-                'parameters': params,
-                'success': False,
-                'duration': time.time() - start_time,
-                'error': str(e),
-                'timestamp': datetime.now().isoformat()
-            }
-
-        finally:
-            # Always cleanup containers after each test
-            self._cleanup_containers()
-
-            # Clean up compose file
-            if compose_file and os.path.exists(compose_file):
                 try:
-                    os.remove(compose_file)
-                except Exception as e:
-                    self.logger.warning(f"Could not remove compose file: {e}")
+                    client_container = self.docker_client.containers.get('raft_client')
+                    logs = client_container.logs().decode('utf-8')
+                except Exception:
+                    pass
+
+                duration = time.time() - start_time
+
+                if status == "SUCCESS":
+                    self.logger.info(f"{test_name} completed in {duration:.2f}s - SUCCESS")
+                    return {
+                        'test_number': self.current_test, 'parameters': params, 'success': True,
+                        'duration': duration, 'logs': logs, 'timestamp': datetime.now().isoformat()
+                    }
+
+                if status == "TIMEOUT":
+                    last_error = "Test timed out"
+                    self.logger.warning(f"{test_name} timed out.")
+                    if attempt < self.retries:
+                        time.sleep(2)
+                        continue
+                else:  # FAILED or INTERRUPTED
+                    last_error = f"Test failed with status: {status}"
+                    self.logger.error(f"{test_name} failed: {last_error}")
+                    return {
+                        'test_number': self.current_test, 'parameters': params, 'success': False,
+                        'duration': duration, 'error': last_error, 'logs': logs,
+                        'timestamp': datetime.now().isoformat()
+                    }
+
+            except Exception as e:
+                last_error = str(e)
+                self.logger.error(f"{test_name} failed with error: {e}")
+                return {
+                    'test_number': self.current_test, 'parameters': params, 'success': False,
+                    'duration': time.time() - start_time, 'error': str(e),
+                    'timestamp': datetime.now().isoformat()
+                }
+            finally:
+                self._cleanup_containers()
+                if compose_file and os.path.exists(compose_file):
+                    try:
+                        os.remove(compose_file)
+                    except Exception as e:
+                        self.logger.warning(f"Could not remove compose file: {e}")
+
+        return {
+            'test_number': self.current_test, 'parameters': params, 'success': False,
+            'duration': time.time() - start_time, 'error': f"{last_error} after {self.retries} retries.",
+            'timestamp': datetime.now().isoformat()
+        }
 
     def run_tests(self,
                   images: List[str],
@@ -370,10 +382,10 @@ class RaftTestRunner:
 
                 image_success = sum(1 for r in image_results if r['success'])
                 image_total = len(image_results)
-                f.write(f"Image Results: {image_success}/{image_total} successful ({(image_success/image_total)*100:.1f}%)\n\n")
+                f.write(f"Image Results: {image_success}/{image_total} successful ({(image_success/image_total)*100:.1f}%)\n")
 
                 for result in image_results:
-                    f.write(f"  Test {result['test_number']}:\n")
+                    f.write(f"  Test {result['test_number']}\n")
                     f.write(f"    Parameters: {result['parameters']}\n")
                     f.write(f"    Result: {'SUCCESS' if result['success'] else 'FAILED'}\n")
                     f.write(f"    Duration: {result['duration']:.2f}s\n")
@@ -411,13 +423,21 @@ def main():
                         help="Name of the test suite")
     parser.add_argument("--report", type=str,
                         help="Output file for test report")
+    parser.add_argument("--timeout", type=int, default=70,
+                        help="Timeout in seconds for each test run before retrying (default: 70)")
+    parser.add_argument("--retries", type=int, default=1,
+                        help="Number of retries for a timed out test (default: 1)")
 
     args = parser.parse_args()
 
-    runner = RaftTestRunner(args.test_suite)
+    runner = RaftTestRunner(
+        test_suite_name=args.test_suite,
+        timeout=args.timeout,
+        retries=args.retries
+    )
 
     try:
-        results = runner.run_tests(
+        runner.run_tests(
             images=args.images,
             compaction_thresholds=args.compaction_thresholds,
             peer_counts=args.peer_counts,

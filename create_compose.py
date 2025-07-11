@@ -3,7 +3,7 @@ import yaml
 from datetime import datetime
 import shlex
 
-def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, compaction_threshold: int, test_suite: str = None):
+def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, compaction_threshold: int, test_suite: str = None, client_start_delay: int = 5):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -52,7 +52,11 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
 
     # Join the command into a single shell string with a sleep
     quoted_cmd = ' '.join(shlex.quote(arg) for arg in raw_client_cmd)
-    client_shell_cmd = f"sleep 5 && {quoted_cmd}"
+    if client_start_delay > 0:
+        client_shell_cmd = f"sleep {client_start_delay} && {quoted_cmd}"
+    else:
+        client_shell_cmd = quoted_cmd
+
 
     services["raft_client"] = {
         "image": client_image,
@@ -89,6 +93,7 @@ def main():
     parser.add_argument("--compaction-threshold", type=int, default=1000, help="Compaction threshold")
     default_test_suite = f"Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     parser.add_argument("--test-suite", type=str, default=default_test_suite, help=f"Name of the test suite to run (default: {default_test_suite})")
+    parser.add_argument("--client-start-delay", type=int, default=5, help="Delay in seconds before starting the client (default: 5)")
     args = parser.parse_args()
 
     compose_yaml = generate_compose(
@@ -98,7 +103,8 @@ def main():
         use_actors=args.actors,
         operations=args.operations,
         compaction_threshold=args.compaction_threshold,
-        test_suite=args.test_suite
+        test_suite=args.test_suite,
+        client_start_delay=args.client_start_delay
     )
 
     with open(args.output, "w") as f:
@@ -112,6 +118,8 @@ def main():
     print(f"  Compaction threshold: {args.compaction_threshold}")
     if args.test_suite:
         print(f"  Test suite: {args.test_suite}")
+    print(f"  Client start delay: {args.client_start_delay}s")
+
 
 if __name__ == "__main__":
     main()

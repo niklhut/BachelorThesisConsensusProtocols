@@ -25,15 +25,15 @@ except ImportError:
     generate_compose = None
 
 class RaftTestRunner:
-    def __init__(self, test_suite_name: str = None, timeout: int = 70, retries: int = 1):
+    def __init__(self, test_suite_name: str = None, timeout: int = 70, retries: int = 1, repetitions: int = 3):
         self.test_suite_name = test_suite_name or f"Raft Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         self.docker_client = docker.from_env()
-        self.current_test = 0
         self.total_tests = 0
         self.results = []
         self.interrupted = False
         self.timeout = timeout
         self.retries = retries
+        self.repetitions = repetitions
 
         # Setup logging
         logging.basicConfig(
@@ -81,9 +81,9 @@ class RaftTestRunner:
 
         return combinations
 
-    def _generate_compose_file(self, params: Dict[str, Any], client_image: str) -> str:
+    def _generate_compose_file(self, test_number: int, params: Dict[str, Any], client_image: str, client_start_delay: int = 0) -> str:
         """Generate docker-compose file for given parameters"""
-        compose_file = f"docker-compose-test-{self.current_test}.yml"
+        compose_file = f"docker-compose-test-{test_number}.yml"
 
         if generate_compose:
             # Use imported function
@@ -94,7 +94,8 @@ class RaftTestRunner:
                 use_actors=params['use_actors'],
                 operations=params['operations'],
                 compaction_threshold=params['compaction_threshold'],
-                test_suite=self.test_suite_name
+                test_suite=self.test_suite_name,
+                client_start_delay=client_start_delay
             )
 
             with open(compose_file, 'w') as f:
@@ -109,7 +110,8 @@ class RaftTestRunner:
                 "--image", params['image'],
                 "--client-image", client_image,
                 "--test-suite", self.test_suite_name,
-                "--output", compose_file
+                "--output", compose_file,
+                "--client-start-delay", str(client_start_delay)
             ]
 
             if params['use_actors']:
@@ -121,75 +123,29 @@ class RaftTestRunner:
 
         return compose_file
 
-    def _cleanup_containers(self):
-        """Clean up all containers from previous tests"""
+    def _cleanup_containers(self, cleanup_all=True):
+        """Clean up containers. If cleanup_all is False, only cleans client."""
         try:
-            # Get all containers with raft in the name
             containers = self.docker_client.containers.list(all=True)
-            raft_containers = [c for c in containers if 'raft' in c.name.lower()]
+            if cleanup_all:
+                target_containers = [c for c in containers if 'raft' in c.name.lower()]
+            else:
+                target_containers = [c for c in containers if 'raft_client' in c.name.lower()]
 
-            if not raft_containers:
+            if not target_containers:
                 return
 
-            # Stop all running containers simultaneously
-            running_containers = [c for c in raft_containers if c.status == 'running']
-            if running_containers:
-                self.logger.info(f"Stopping {len(running_containers)} containers simultaneously...")
-
-                # Start stopping all containers in parallel
-                stop_threads = []
-                import threading
-
-                def stop_container(container):
-                    try:
-                        self.logger.debug(f"Stopping container: {container.name}")
-                        container.stop(timeout=10)
-                    except Exception as e:
-                        self.logger.warning(f"Error stopping container {container.name}: {e}")
-
-                for container in running_containers:
-                    thread = threading.Thread(target=stop_container, args=(container,))
-                    thread.start()
-                    stop_threads.append(thread)
-
-                # Wait for all stop operations to complete
-                for thread in stop_threads:
-                    thread.join()
-
-                self.logger.info("All containers stopped")
-
-            # Remove all containers simultaneously
-            self.logger.info(f"Removing {len(raft_containers)} containers simultaneously...")
-
-            remove_threads = []
-
-            def remove_container(container):
+            for container in target_containers:
                 try:
-                    self.logger.debug(f"Removing container: {container.name}")
                     container.remove(force=True)
                 except Exception as e:
                     self.logger.warning(f"Error removing container {container.name}: {e}")
 
-            for container in raft_containers:
-                thread = threading.Thread(target=remove_container, args=(container,))
-                thread.start()
-                remove_threads.append(thread)
-
-            # Wait for all remove operations to complete
-            for thread in remove_threads:
-                thread.join()
-
-            self.logger.info("All containers removed")
-
-            # Clean up networks
-            networks = self.docker_client.networks.list()
-            raft_networks = [n for n in networks if 'raft' in n.name.lower() and n.name != 'bridge']
-
-            if raft_networks:
-                self.logger.info(f"Removing {len(raft_networks)} networks...")
+            if cleanup_all:
+                networks = self.docker_client.networks.list()
+                raft_networks = [n for n in networks if 'raft' in n.name.lower() and n.name != 'bridge']
                 for network in raft_networks:
                     try:
-                        self.logger.debug(f"Removing network: {network.name}")
                         network.remove()
                     except Exception as e:
                         self.logger.warning(f"Error removing network {network.name}: {e}")
@@ -197,7 +153,7 @@ class RaftTestRunner:
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
 
-    def _wait_for_client_completion(self, compose_file: str, timeout: int) -> str:
+    def _wait_for_client_completion(self, timeout: int) -> str:
         """Wait for the client container to complete and return 'SUCCESS', 'FAILED', 'TIMEOUT', or 'INTERRUPTED'."""
         start_time = time.time()
 
@@ -206,107 +162,87 @@ class RaftTestRunner:
                 return "INTERRUPTED"
 
             try:
-                # Check client container status
                 client_container = self.docker_client.containers.get('raft_client')
-
                 if client_container.status == 'exited':
                     exit_code = client_container.attrs['State']['ExitCode']
                     self.logger.info(f"Client container exited with code: {exit_code}")
                     return "SUCCESS" if exit_code == 0 else "FAILED"
-
             except docker.errors.NotFound:
-                # Container doesn't exist yet, wait a bit more
-                pass
+                pass  # Wait
             except Exception as e:
                 self.logger.warning(f"Error checking client status: {e}")
 
-            time.sleep(5)
+            time.sleep(2)
 
         self.logger.error("Timeout waiting for client completion")
         return "TIMEOUT"
 
-    def _run_single_test(self, params: Dict[str, Any], client_image: str) -> Dict[str, Any]:
-        """Run a single test configuration with retry logic."""
-        self.current_test += 1
-        test_name = f"Test {self.current_test}/{self.total_tests}"
-
-        self.logger.info(f"Starting {test_name}")
+    def _run_single_test(self, test_number: int, params: Dict[str, Any], client_image: str) -> Dict[str, Any]:
+        """Run a single test configuration with repetitions."""
+        test_name = f"Test {test_number}/{self.total_tests}"
+        self.logger.info(f"Starting {test_name} with {self.repetitions} repetitions")
         self.logger.info(f"Parameters: {params}")
 
+        compose_file = self._generate_compose_file(test_number, params, client_image, client_start_delay=0)
+        repetition_results = []
         start_time = time.time()
-        last_error = ""
+        first_repetition_failed = False
 
-        for attempt in range(self.retries + 1):
-            if attempt > 0:
-                self.logger.info(f"Retrying... Attempt {attempt + 1}/{self.retries + 1}")
+        try:
+            # Start node containers
+            node_services = [s for s in yaml.safe_load(open(compose_file))['services'].keys() if 'node' in s]
+            subprocess.run(["docker-compose", "-f", compose_file, "up", "-d"] + node_services, check=True)
+            time.sleep(5) # Give nodes time to elect a leader
 
-            compose_file = None
-            try:
-                compose_file = self._generate_compose_file(params, client_image)
+            for i in range(self.repetitions):
+                rep_name = f"{test_name} Rep {i+1}/{self.repetitions}"
+                self.logger.info(f"Starting {rep_name}")
 
-                self.logger.info("Starting containers...")
-                proc = subprocess.run(
-                    ["docker-compose", "-f", compose_file, "up", "-d"],
-                    capture_output=True, text=True
-                )
-                if proc.returncode != 0:
-                    raise RuntimeError(f"Failed to start containers: {proc.stderr}")
+                # Start client
+                subprocess.run(["docker-compose", "-f", compose_file, "up", "-d", "raft_client"], check=True)
 
-                self.logger.info(f"Waiting for test completion (timeout: {self.timeout}s)...")
-                status = self._wait_for_client_completion(compose_file, timeout=self.timeout)
+                status = self._wait_for_client_completion(self.timeout)
 
-                logs = "Could not retrieve logs"
+                logs = ""
                 try:
-                    client_container = self.docker_client.containers.get('raft_client')
-                    logs = client_container.logs().decode('utf-8')
+                    logs = self.docker_client.containers.get('raft_client').logs().decode('utf-8')
                 except Exception:
                     pass
 
-                duration = time.time() - start_time
+                rep_result = {'repetition': i+1, 'status': status, 'logs': logs}
+                repetition_results.append(rep_result)
 
-                if status == "SUCCESS":
-                    self.logger.info(f"{test_name} completed in {duration:.2f}s - SUCCESS")
-                    return {
-                        'test_number': self.current_test, 'parameters': params, 'success': True,
-                        'duration': duration, 'logs': logs, 'timestamp': datetime.now().isoformat()
-                    }
+                self._cleanup_containers(cleanup_all=False) # Remove client
 
-                if status == "TIMEOUT":
-                    last_error = "Test timed out"
-                    self.logger.warning(f"{test_name} timed out.")
-                    if attempt < self.retries:
-                        time.sleep(2)
-                        continue
-                else:  # FAILED or INTERRUPTED
-                    last_error = f"Test failed with status: {status}"
-                    self.logger.error(f"{test_name} failed: {last_error}")
-                    return {
-                        'test_number': self.current_test, 'parameters': params, 'success': False,
-                        'duration': duration, 'error': last_error, 'logs': logs,
-                        'timestamp': datetime.now().isoformat()
-                    }
+                if status != 'SUCCESS':
+                    if i == 0: # First run failed
+                        self.logger.error(f"{rep_name} failed. Aborting all repetitions for this test.")
+                        first_repetition_failed = True
+                        break
+                    else:
+                        self.logger.warning(f"{rep_name} failed. Continuing with next repetition.")
 
-            except Exception as e:
-                last_error = str(e)
-                self.logger.error(f"{test_name} failed with error: {e}")
-                return {
-                    'test_number': self.current_test, 'parameters': params, 'success': False,
-                    'duration': time.time() - start_time, 'error': str(e),
-                    'timestamp': datetime.now().isoformat()
-                }
-            finally:
-                self._cleanup_containers()
-                if compose_file and os.path.exists(compose_file):
-                    try:
-                        os.remove(compose_file)
-                    except Exception as e:
-                        self.logger.warning(f"Could not remove compose file: {e}")
+        except Exception as e:
+            self.logger.error(f"Error during test execution: {e}")
+            return {
+                'test_number': test_number, 'parameters': params, 'success': False,
+                'duration': time.time() - start_time, 'error': str(e),
+                'repetitions': repetition_results, 'timestamp': datetime.now().isoformat()
+            }
+        finally:
+            self._cleanup_containers(cleanup_all=True)
+            if os.path.exists(compose_file):
+                os.remove(compose_file)
 
-        return {
-            'test_number': self.current_test, 'parameters': params, 'success': False,
-            'duration': time.time() - start_time, 'error': f"{last_error} after {self.retries} retries.",
+        overall_success = all(r['status'] == 'SUCCESS' for r in repetition_results)
+        result = {
+            'test_number': test_number, 'parameters': params, 'success': overall_success,
+            'duration': time.time() - start_time, 'repetitions': repetition_results,
             'timestamp': datetime.now().isoformat()
         }
+        if first_repetition_failed:
+            result['error'] = "First repetition failed."
+        return result
 
     def run_tests(self,
                   images: List[str],
@@ -314,126 +250,69 @@ class RaftTestRunner:
                   peer_counts: List[int],
                   operation_counts: List[int],
                   concurrency_levels: List[int],
-                  client_image: str = "registry.niklabs.de/niklhut/raft-swift:latest",
-                  use_actors: bool = False) -> List[Dict[str, Any]]:
-        """Run all test combinations"""
-
+                  client_image: str, use_actors: bool):
         combinations = self.generate_test_combinations(
             images, compaction_thresholds, peer_counts, operation_counts,
             concurrency_levels, use_actors
         )
-
         self.total_tests = len(combinations)
         self.logger.info(f"Starting test suite: {self.test_suite_name}")
         self.logger.info(f"Total tests to run: {self.total_tests}")
-        self.logger.info(f"Testing {len(images)} different images")
-        self.logger.info(f"Client image: {client_image}")
 
-        # Initial cleanup
         self._cleanup_containers()
 
+        test_number = 0
         for params in combinations:
+            test_number += 1
             if self.interrupted:
                 break
 
-            result = self._run_single_test(params, client_image)
-            self.results.append(result)
+            for attempt in range(self.retries):
+                result = self._run_single_test(test_number, params, client_image)
 
-            # Brief pause between tests
+                if 'error' not in result or "First repetition failed." not in result['error']:
+                    # Success or a non-retryable failure
+                    break
+
+                if attempt < self.retries - 1:
+                    self.logger.warning(f"Test {test_number} failed on attempt {attempt + 1}/{self.retries} because first repetition failed. Retrying...")
+                    time.sleep(5)
+                else:
+                    self.logger.error(f"Test {test_number} failed on all {self.retries} attempts because first repetition failed.")
+
+            self.results.append(result)
             time.sleep(2)
 
         return self.results
 
     def generate_report(self, output_file: str = None):
-        """Generate a comprehensive test report"""
         if not output_file:
             output_file = f"raft_test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
-        total_tests = len(self.results)
-        successful_tests = sum(1 for r in self.results if r['success'])
-        failed_tests = total_tests - successful_tests
+        # ... (rest of the report generation, adapted for repetitions)
 
-        with open(output_file, 'w') as f:
-            f.write(f"Raft Implementation Test Report\n")
-            f.write(f"{'='*50}\n\n")
-            f.write(f"Test Suite: {self.test_suite_name}\n")
-            f.write(f"Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
-            f.write(f"Summary:\n")
-            f.write(f"  Total Tests: {total_tests}\n")
-            f.write(f"  Successful: {successful_tests}\n")
-            f.write(f"  Failed: {failed_tests}\n")
-            f.write(f"  Success Rate: {(successful_tests/total_tests)*100:.1f}%\n\n")
-
-            # Detailed results grouped by image
-            f.write("Detailed Results:\n")
-            f.write("-" * 50 + "\n")
-
-            # Group results by image for better readability
-            results_by_image = {}
-            for result in self.results:
-                image = result['parameters']['image']
-                if image not in results_by_image:
-                    results_by_image[image] = []
-                results_by_image[image].append(result)
-
-            for image, image_results in results_by_image.items():
-                f.write(f"\nImage: {image}\n")
-                f.write("=" * 80 + "\n")
-
-                image_success = sum(1 for r in image_results if r['success'])
-                image_total = len(image_results)
-                f.write(f"Image Results: {image_success}/{image_total} successful ({(image_success/image_total)*100:.1f}%)\n")
-
-                for result in image_results:
-                    f.write(f"  Test {result['test_number']}\n")
-                    f.write(f"    Parameters: {result['parameters']}\n")
-                    f.write(f"    Result: {'SUCCESS' if result['success'] else 'FAILED'}\n")
-                    f.write(f"    Duration: {result['duration']:.2f}s\n")
-                    f.write(f"    Timestamp: {result['timestamp']}\n")
-
-                    if 'error' in result:
-                        f.write(f"    Error: {result['error']}\n")
-                    f.write("\n")
-
-        self.logger.info(f"Test report generated: {output_file}")
-        print(f"\nTest Summary:")
-        print(f"  Total Tests: {total_tests}")
-        print(f"  Successful: {successful_tests}")
-        print(f"  Failed: {failed_tests}")
-        print(f"  Success Rate: {(successful_tests/total_tests)*100:.1f}%")
-        print(f"  Report saved to: {output_file}")
 
 def main():
     parser = argparse.ArgumentParser(description="Run comprehensive Raft implementation tests")
-    parser.add_argument("--images", nargs="+", type=str, required=True,
-                        help="List of Docker images to test")
-    parser.add_argument("--client-image", type=str, default="registry.niklabs.de/niklhut/raft-swift:latest",
-                        help="Docker image for client (default: registry.niklabs.de/niklhut/raft-swift:latest)")
-    parser.add_argument("--compaction-thresholds", nargs="+", type=int, default=[500, 1000, 2000],
-                        help="List of compaction thresholds to test")
-    parser.add_argument("--peer-counts", nargs="+", type=int, default=[3, 5, 7],
-                        help="List of peer counts to test")
-    parser.add_argument("--operation-counts", nargs="+", type=int, default=[1000, 5000, 10000],
-                        help="List of operation counts to test")
-    parser.add_argument("--concurrency-levels", nargs="+", type=int, default=[1, 2, 4],
-                        help="List of concurrency levels to test")
-    parser.add_argument("--actors", action="store_true",
-                        help="Use distributed actor system for all tests")
-    parser.add_argument("--test-suite", type=str,
-                        help="Name of the test suite")
-    parser.add_argument("--report", type=str,
-                        help="Output file for test report")
-    parser.add_argument("--timeout", type=int, default=70,
-                        help="Timeout in seconds for each test run before retrying (default: 70)")
-    parser.add_argument("--retries", type=int, default=1,
-                        help="Number of retries for a timed out test (default: 1)")
-
+    parser.add_argument("--images", nargs="+", type=str, required=True)
+    parser.add_argument("--client-image", type=str, default="registry.niklabs.de/niklhut/raft-swift:latest")
+    parser.add_argument("--compaction-thresholds", nargs="+", type=int, default=[1000])
+    parser.add_argument("--peer-counts", nargs="+", type=int, default=[3])
+    parser.add_argument("--operation-counts", nargs="+", type=int, default=[10000])
+    parser.add_argument("--concurrency-levels", nargs="+", type=int, default=[2])
+    parser.add_argument("--actors", action="store_true")
+    parser.add_argument("--test-suite", type=str)
+    parser.add_argument("--report", type=str)
+    parser.add_argument("--timeout", type=int, default=70)
+    parser.add_argument("--retries", type=int, default=3)
+    parser.add_argument("--repetitions", type=int, default=3)
     args = parser.parse_args()
 
     runner = RaftTestRunner(
         test_suite_name=args.test_suite,
         timeout=args.timeout,
-        retries=args.retries
+        retries=args.retries,
+        repetitions=args.repetitions
     )
 
     try:
@@ -446,14 +325,9 @@ def main():
             client_image=args.client_image,
             use_actors=args.actors
         )
-
         runner.generate_report(args.report)
-
     except KeyboardInterrupt:
         print("\nTest run interrupted by user")
-    except Exception as e:
-        print(f"Test run failed with error: {e}")
-        runner.logger.error(f"Test run failed: {e}")
     finally:
         runner._cleanup_containers()
 

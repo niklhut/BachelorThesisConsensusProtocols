@@ -36,11 +36,12 @@ class RaftTestRunner:
         self.repetitions = repetitions
 
         # Setup logging
+        os.makedirs("test-output", exist_ok=True)
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s - %(levelname)s - %(message)s',
             handlers=[
-                logging.FileHandler(f'raft_test_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
+                logging.FileHandler(f'test-output/raft_test_{datetime.now().strftime("%Y%m%d_%H%M%S")}.log'),
                 logging.StreamHandler()
             ]
         )
@@ -288,7 +289,10 @@ class RaftTestRunner:
 
     def generate_report(self, output_file: str = None):
         if not output_file:
-            output_file = f"raft_test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            output_file = f"test-output/raft_test_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+            # Create the output directory if it doesn't exist
+            os.makedirs(os.path.dirname(output_file), exist_ok=True)
 
         # ... (rest of the report generation, adapted for repetitions)
 

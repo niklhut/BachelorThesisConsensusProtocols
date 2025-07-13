@@ -3,7 +3,7 @@ import yaml
 from datetime import datetime
 import shlex
 
-def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, compaction_threshold: int, test_suite: str = None, client_start_delay: int = 5):
+def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, concurrency: int, compaction_threshold: int, test_suite: str = None, client_start_delay: int = 5):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -44,6 +44,7 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
         "--peers", str(peers),
         "--stress-test",
         "--operations", str(operations),
+        "--concurrency", str(concurrency),
     ]
     if test_suite:
         raw_client_cmd.extend(["--test-suite", test_suite])
@@ -90,6 +91,7 @@ def main():
     parser.add_argument("--image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--client-image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--operations", type=int, default=20000, help="Number of operations to perform")
+    parser.add_argument("--concurrency", type=int, default=10, help="Concurrency level")
     parser.add_argument("--compaction-threshold", type=int, default=1000, help="Compaction threshold")
     default_test_suite = f"Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     parser.add_argument("--test-suite", type=str, default=default_test_suite, help=f"Name of the test suite to run (default: {default_test_suite})")
@@ -102,6 +104,7 @@ def main():
         num_peers=args.peers,
         use_actors=args.actors,
         operations=args.operations,
+        concurrency=args.concurrency,
         compaction_threshold=args.compaction_threshold,
         test_suite=args.test_suite,
         client_start_delay=args.client_start_delay
@@ -115,6 +118,7 @@ def main():
     print(f"  Number of peers: {args.peers}")
     print(f"  Use actors: {args.actors}")
     print(f"  Operations: {args.operations}")
+    print(f"  Concurrency: {args.concurrency}")
     print(f"  Compaction threshold: {args.compaction_threshold}")
     if args.test_suite:
         print(f"  Test suite: {args.test_suite}")

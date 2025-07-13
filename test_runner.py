@@ -93,6 +93,7 @@ class RaftTestRunner:
                 num_peers=params['peers'],
                 use_actors=params['use_actors'],
                 operations=params['operations'],
+                concurrency=params['concurrency'],
                 compaction_threshold=params['compaction_threshold'],
                 test_suite=self.test_suite_name,
                 client_start_delay=client_start_delay

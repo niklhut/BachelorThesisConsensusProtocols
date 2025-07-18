@@ -194,7 +194,7 @@ class RaftTestRunner:
             # Start node containers
             node_services = [s for s in yaml.safe_load(open(compose_file))['services'].keys() if 'node' in s]
             subprocess.run(["docker-compose", "-f", compose_file, "up", "-d"] + node_services, check=True)
-            time.sleep(5) # Give nodes time to elect a leader
+            time.sleep(4) # Give nodes time to elect a leader
 
             for i in range(self.repetitions):
                 rep_name = f"{test_name} Rep {i+1}/{self.repetitions}"

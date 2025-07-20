@@ -36,7 +36,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameters:
     ///   - operations: The number of operations to perform.
     ///   - concurrency: The number of concurrent operations to perform.
-    public func run(operations: Int = 10000, concurrency: Int = 10) async throws {
+    public func run(operations: Int = 10000, concurrency: Int = 10, skipSanityCheck: Bool = false) async throws {
         let startTime = Date()
 
         let progressBar = terminal.progressBar(title: "Stress Test")
@@ -120,7 +120,9 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             try await sendStressTestData(result)
         #endif
 
-        try await sanityCheck(testValues: testValues, concurrency: concurrency)
+        if !skipSanityCheck {
+            try await sanityCheck(testValues: testValues, concurrency: concurrency)
+        }
     }
 
     // MARK: - Helpers

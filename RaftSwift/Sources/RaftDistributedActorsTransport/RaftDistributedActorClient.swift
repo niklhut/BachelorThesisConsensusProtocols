@@ -55,12 +55,12 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
         try await interactiveConsoleClient.run()
     }
 
-    public func runStressTest(operations: Int, concurrency: Int, testSuiteName: String) async throws {
+    public func runStressTest(operations: Int, concurrency: Int, testSuiteName: String, skipSanityCheck: Bool) async throws {
         let client = try await setupClient()
 
         let stressTestClient = StressTestClient(client: client, testSuite: testSuiteName)
 
-        try await stressTestClient.run(operations: operations, concurrency: concurrency)
+        try await stressTestClient.run(operations: operations, concurrency: concurrency, skipSanityCheck: skipSanityCheck)
     }
 
     public func runFunctionalityTests() async throws {

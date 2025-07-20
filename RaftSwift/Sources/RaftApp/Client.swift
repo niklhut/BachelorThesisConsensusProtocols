@@ -39,6 +39,9 @@ final class Client: AsyncParsableCommand {
     @Option(help: "Test suite name")
     var testSuite: String = ""
 
+    @Flag(help: "Skip sanity check after stress test")
+    var skipSanityCheck: Bool = true
+
     // MARK: - Transport
 
     @Flag(help: "Use Distributed Actor System for transport")
@@ -58,7 +61,7 @@ final class Client: AsyncParsableCommand {
         } else if tests {
             try await client.runFunctionalityTests()
         } else if stressTest {
-            try await client.runStressTest(operations: operations, concurrency: concurrency, testSuiteName: testSuite)
+            try await client.runStressTest(operations: operations, concurrency: concurrency, testSuiteName: testSuite, skipSanityCheck: skipSanityCheck)
         }
     }
 }

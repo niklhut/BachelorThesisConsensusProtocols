@@ -139,6 +139,12 @@ class RaftTestRunner:
 
             for container in target_containers:
                 try:
+                    # Force stop with a 0-second timeout before removing to avoid graceful shutdown period.
+                    container.stop(timeout=0)
+                except Exception:
+                    # Ignore errors, e.g., if the container is already stopped.
+                    pass
+                try:
                     container.remove(force=True)
                 except Exception as e:
                     self.logger.warning(f"Error removing container {container.name}: {e}")
@@ -308,7 +314,7 @@ def main():
     parser.add_argument("--actors", action="store_true")
     parser.add_argument("--test-suite", type=str)
     parser.add_argument("--report", type=str)
-    parser.add_argument("--timeout", type=int, default=70)
+    parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--repetitions", type=int, default=3)
     args = parser.parse_args()

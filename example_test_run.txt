@@ -1,0 +1,23 @@
+python test_runner.py \
+    --images "registry.niklabs.de/niklhut/raftswift:latest" \
+    --client-image "registry.niklabs.de/niklhut/raftswift:latest" \
+    --compaction-thresholds 1000 \
+    --peer-counts 3 5 7 \
+    --operation-counts 10000 20000 50000 \
+    --concurrency-levels 5 10 20 \
+    --test-suite "Swift Check" \
+    --report "test-output/performance_comparison.txt"
+
+
+python test_distributed.py \
+  --images "registry.niklabs.de/niklhut/raftswift:latest" \
+    "registry.niklabs.de/niklhut/raftkotlin:latest" \
+    "registry.niklabs.de/niklhut/raftgo:latest" \
+  --client-image "registry.niklabs.de/niklhut/raftswift:latest" \
+  --peer-counts 3 5 \
+  --operation-counts 10000 20000 50000 \
+  --concurrency-levels 5 10 20 40 \
+  --timeout 300 \
+  --retries 2 \
+  --repetitions 3 \
+  --test-suite "Distributed Test"

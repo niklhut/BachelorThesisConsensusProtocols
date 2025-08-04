@@ -378,7 +378,7 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
         lock.withLock {
             DiagnosticsResponse(
                 id: persistentState.ownPeer.id,
-                implementation: "Swift",
+                implementation: "Swift (Manual Locks)",
                 version: "1.3.1",
                 compactionThreshold: persistentState.persistence.compactionThreshold,
             )

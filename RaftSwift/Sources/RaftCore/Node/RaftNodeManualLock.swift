@@ -726,6 +726,11 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
                 if peerNextIndex <= originalLogLength {
                     // Peer needs entries from the original log (catch-up scenario)
                     let startIndex = peerNextIndex - persistentState.snapshot.lastIncludedIndex - 1
+                    guard startIndex >= 0, startIndex < persistentState.log.count else {
+                        logger.error("Invalid startIndex \(startIndex) for peer \(peer.id), log.count: \(persistentState.log.count)")
+                        leaderState.nextIndex[peer.id] = persistentState.snapshot.lastIncludedIndex + 1
+                        return (true, [], 0, 0)
+                    }
                     entriesToSend = Array(persistentState.log[startIndex...])
                 } else if peerNextIndex == originalLogLength + 1 {
                     // Peer is up-to-date with original log, send only new entries

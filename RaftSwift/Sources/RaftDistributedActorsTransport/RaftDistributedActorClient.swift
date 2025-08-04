@@ -16,7 +16,11 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
     }
 
     private func setupClient() async throws -> RaftClient<DistributedActorClientTransport> {
-        let actorSystem = await ClusterSystem("raft.DistributedActorSystem.Client")
+        let randomId = Int.random(in: 7000 ... 8000)
+        let actorSystem = await ClusterSystem("raft.DistributedActorSystem.Client.\(randomId)") { settings in
+            settings.bindPort = randomId
+            settings.downingStrategy = .timeout(.default)
+        }
 
         connectToPeers(actorSystem: actorSystem)
 

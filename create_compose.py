@@ -3,7 +3,7 @@ import yaml
 from datetime import datetime
 import shlex
 
-def generate_compose(image: str, client_image: str, num_peers: int, use_actors: bool, operations: int, concurrency: int, compaction_threshold: int, test_suite: str = None, client_start_delay: int = 5):
+def generate_compose(image: str, client_image: str, num_peers: int, operations: int, concurrency: int, compaction_threshold: int, test_suite: str = None, client_start_delay: int = 5, distributed_actor_system: bool = False, manual_locks: bool = False):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -28,8 +28,10 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
             "--peers", peer_peers,
             "--compaction-threshold", str(compaction_threshold),
         ]
-        if use_actors:
+        if distributed_actor_system:
             peer_command.append("--use-distributed-actor-system")
+        if manual_locks:
+            peer_command.append("--use-manual-lock")
 
         services[container_name] = {
             "image": image,
@@ -48,7 +50,7 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
     ]
     if test_suite:
         raw_client_cmd.extend(["--test-suite", test_suite])
-    if use_actors:
+    if distributed_actor_system:
         raw_client_cmd.append("--use-distributed-actor-system")
 
     # Join the command into a single shell string with a sleep
@@ -86,7 +88,8 @@ def generate_compose(image: str, client_image: str, num_peers: int, use_actors: 
 def main():
     parser = argparse.ArgumentParser(description="Generate Docker Compose for Raft Cluster")
     parser.add_argument("--peers", type=int, required=True, help="Number of Raft peer nodes")
-    parser.add_argument("--actors", action="store_true", help="Use distributed actor system")
+    parser.add_argument("--distributed-actor-system", action="store_true", help="Use distributed actor system (raftswift only)")
+    parser.add_argument("--manual-locks", action="store_true", help="Use manual locks instead of actors (raftswift only)")
     parser.add_argument("--output", type=str, default="docker-compose.yml", help="Output YAML file")
     parser.add_argument("--image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
     parser.add_argument("--client-image", type=str, default="docker.niklabs.de/niklhut/raft-swift:latest", help="Docker image")
@@ -102,12 +105,13 @@ def main():
         image=args.image,
         client_image=args.client_image,
         num_peers=args.peers,
-        use_actors=args.actors,
         operations=args.operations,
         concurrency=args.concurrency,
         compaction_threshold=args.compaction_threshold,
         test_suite=args.test_suite,
-        client_start_delay=args.client_start_delay
+        client_start_delay=args.client_start_delay,
+        distributed_actor_system=args.distributed_actor_system,
+        manual_locks=args.manual_locks
     )
 
     with open(args.output, "w") as f:
@@ -116,7 +120,9 @@ def main():
     print("Generated configuration:")
     print(f"  Output file: {args.output}")
     print(f"  Number of peers: {args.peers}")
-    print(f"  Use actors: {args.actors}")
+    if 'raftswift' in args.image.lower():
+        print(f"  Use distributed actor system: {args.distributed_actor_system}")
+        print(f"  Use manual locks: {args.manual_locks}")
     print(f"  Operations: {args.operations}")
     print(f"  Concurrency: {args.concurrency}")
     print(f"  Compaction threshold: {args.compaction_threshold}")

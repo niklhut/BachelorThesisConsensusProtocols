@@ -32,6 +32,9 @@ final class Peer: AsyncParsableCommand {
     @Option(help: "The compaction threshold")
     var compactionThreshold: Int = 1000
 
+    @Flag(help: "Use Manual Lock for RaftNode")
+    var useManualLock: Bool = false
+
     @Flag(help: "Use Distributed Actor System for transport")
     var useDistributedActorSystem: Bool = false
 
@@ -47,9 +50,9 @@ final class Peer: AsyncParsableCommand {
             }
 
         let server: any RaftNodeApplication = if useDistributedActorSystem {
-            RaftDistributedActorServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer)
+            RaftDistributedActorServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer, useManualLock: useManualLock)
         } else {
-            RaftGRPCServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer)
+            RaftGRPCServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer, useManualLock: useManualLock)
         }
         try await server.serve()
     }

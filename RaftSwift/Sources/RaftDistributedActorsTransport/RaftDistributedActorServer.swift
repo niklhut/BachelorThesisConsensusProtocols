@@ -7,18 +7,20 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
     public let ownPeer: Peer
     public let peers: [Peer]
     public let persistence: any RaftNodePersistence
+    public let useManualLock: Bool
 
     /// The logger
     let logger = Logger(label: "raft.RaftDistributedActorServer")
 
-    public init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence) {
+    public init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence, useManualLock: Bool) {
         self.ownPeer = ownPeer
         self.peers = peers
         self.persistence = persistence
+        self.useManualLock = useManualLock
     }
 
     public func serve() async throws {
-        var node: RaftNode? = nil
+        var node: (any RaftNodeProtocol)? = nil
 
         let actorSystem = await ClusterSystem("raft.DistributedActorSystem.\(ownPeer.id)") { settings in
             settings.bindPort = ownPeer.port
@@ -28,13 +30,23 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
 
         let transport = DistributedActorNodeTransport(nodeProvider: { node }, peers: peers, actorSystem: actorSystem)
 
-        node = RaftNode(
-            ownPeer,
-            peers: peers,
-            config: RaftConfig(),
-            transport: transport,
-            persistence: persistence,
-        )
+        node = if useManualLock {
+            RaftNodeManualLock(
+                ownPeer,
+                peers: peers,
+                config: RaftConfig(),
+                transport: transport,
+                persistence: persistence,
+            )
+        } else {
+            RaftNode(
+                ownPeer,
+                peers: peers,
+                config: RaftConfig(),
+                transport: transport,
+                persistence: persistence,
+            )
+        }
 
         try await transport.setNode()
 

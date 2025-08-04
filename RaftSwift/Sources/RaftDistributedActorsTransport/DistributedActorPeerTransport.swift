@@ -19,17 +19,17 @@ distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWat
     var listingTask: Task<Void, Never>?
 
     /// The node provider
-    private let nodeProvider: () -> RaftNode?
+    private let nodeProvider: () -> (any RaftNodeProtocol)?
 
     /// The node
-    weak var node: RaftNode!
+    var node: (any RaftNodeProtocol)!
 
     /// Initializes the peer transport
     /// - Parameters:
     ///   - nodeProvider: The node provider
     ///   - peers: The list of peers
     ///   - actorSystem: The actor system
-    init(nodeProvider: @escaping () -> RaftNode?, peers: [Peer], actorSystem: ActorSystem) {
+    init(nodeProvider: @escaping () -> (any RaftNodeProtocol)?, peers: [Peer], actorSystem: ActorSystem) {
         self.nodeProvider = nodeProvider
         self.peers = peers
         self.actorSystem = actorSystem
@@ -62,12 +62,11 @@ distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWat
 
     // MARK: - RaftNodeTransport
 
-    func appendEntries(
+    distributed func appendEntries(
         _ request: AppendEntriesRequest,
         to peer: Peer,
-        isolation: isolated any Actor,
     ) async throws -> AppendEntriesResponse {
-        let remoteActor = try await getRemoteActor(peer)
+        let remoteActor = try getRemoteActor(peer)
 
         return try await remoteActor.getAppendEntries(request)
     }
@@ -81,12 +80,11 @@ distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWat
         await node.appendEntries(request: request)
     }
 
-    func requestVote(
+    distributed func requestVote(
         _ request: RequestVoteRequest,
         to peer: Peer,
-        isolation: isolated any Actor,
     ) async throws -> RequestVoteResponse {
-        let remoteActor = try await getRemoteActor(peer)
+        let remoteActor = try getRemoteActor(peer)
 
         return try await remoteActor.getRequestVote(request)
     }
@@ -103,12 +101,11 @@ distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWat
     /// Handles install snapshot requests
     /// - Parameter request: The install snapshot request
     /// - Returns: The install snapshot response
-    func installSnapshot(
+    distributed func installSnapshot(
         _ request: InstallSnapshotRequest,
         on peer: Peer,
-        isolation: isolated any Actor,
     ) async throws -> InstallSnapshotResponse {
-        let remoteActor = try await getRemoteActor(peer)
+        let remoteActor = try getRemoteActor(peer)
 
         return try await remoteActor.getInstallSnapshot(request)
     }

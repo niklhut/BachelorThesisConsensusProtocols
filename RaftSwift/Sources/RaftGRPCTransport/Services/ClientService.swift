@@ -3,9 +3,9 @@ import RaftCore
 import SwiftProtobuf
 
 struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
-    let node: RaftNode
+    let node: any RaftNodeProtocol
 
-    init(node: RaftNode) {
+    init(node: any RaftNodeProtocol) {
         self.node = node
     }
 

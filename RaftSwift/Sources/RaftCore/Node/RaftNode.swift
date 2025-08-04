@@ -1,7 +1,7 @@
 import Foundation
 import Logging
 
-public actor RaftNode {
+public actor RaftNode: RaftNodeProtocol {
     // MARK: - Properties
 
     /// The transport layer for peer-to-peer communication.
@@ -516,7 +516,6 @@ public actor RaftNode {
             let response = try await transport.requestVote(
                 voteRequest,
                 to: peer,
-                isolation: #isolation,
             )
             return (peer.id, response)
         } catch {
@@ -681,7 +680,7 @@ public actor RaftNode {
                     leaderCommit: commitIndex,
                 )
 
-                let result = try await transport.appendEntries(appendEntriesRequest, to: peer, isolation: #isolation)
+                let result = try await transport.appendEntries(appendEntriesRequest, to: peer)
 
                 if Task.isCancelled {
                     return
@@ -929,7 +928,7 @@ public actor RaftNode {
         )
 
         do {
-            let response = try await transport.installSnapshot(request, on: peer, isolation: #isolation)
+            let response = try await transport.installSnapshot(request, on: peer)
             persistentState.isSendingSnapshot[peer.id] = false
 
             if response.term > persistentState.currentTerm {

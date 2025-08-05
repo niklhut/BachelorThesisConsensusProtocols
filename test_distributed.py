@@ -29,8 +29,9 @@ except ImportError:
 # Server configuration
 SERVERS = {
     "zs01": "10.10.2.181",
-    "zs02": "10.10.2.182",
+    # "zs02": "10.10.2.182",
     "zs03": "10.10.2.183",
+    "zs04": "10.10.2.184",
     "zs05": "10.10.2.185",
     "zs08": "10.10.2.188",
 }
@@ -157,8 +158,7 @@ class RaftDistributedTestRunner:
                                  compaction_thresholds: List[int],
                                  peer_counts: List[int],
                                  operation_counts: List[int],
-                                 concurrency_levels: List[int],
-                                 use_actors: bool = False) -> List[Dict[str, Any]]:
+                                 concurrency_levels: List[int]) -> List[Dict[str, Any]]:
         """Generate all combinations of test parameters"""
         combinations = []
 
@@ -168,14 +168,60 @@ class RaftDistributedTestRunner:
             if peers > len(SERVERS):
                 self.logger.warning(f"Skipping test with {peers} peers because there are not enough servers.")
                 continue
-            combinations.append({
-                'image': image,
-                'compaction_threshold': threshold,
-                'peers': peers,
-                'operations': operations,
-                'concurrency': concurrency,
-                'use_actors': use_actors
-            })
+
+            # For raftswift implementation, test with different combinations of flags
+            if 'raftswift' in image.lower():
+                # Test with both flags off
+                combinations.append({
+                    'image': image,
+                    'compaction_threshold': threshold,
+                    'peers': peers,
+                    'operations': operations,
+                    'concurrency': concurrency,
+                    'distributed_actor_system': False,
+                    'manual_locks': False
+                })
+                # Test with both flags on
+                combinations.append({
+                    'image': image,
+                    'compaction_threshold': threshold,
+                    'peers': peers,
+                    'operations': operations,
+                    'concurrency': concurrency,
+                    'distributed_actor_system': True,
+                    'manual_locks': True
+                })
+                # Test with distributed_actor_system on, manual_locks off
+                combinations.append({
+                    'image': image,
+                    'compaction_threshold': threshold,
+                    'peers': peers,
+                    'operations': operations,
+                    'concurrency': concurrency,
+                    'distributed_actor_system': True,
+                    'manual_locks': False
+                })
+                # Test with distributed_actor_system off, manual_locks on
+                combinations.append({
+                    'image': image,
+                    'compaction_threshold': threshold,
+                    'peers': peers,
+                    'operations': operations,
+                    'concurrency': concurrency,
+                    'distributed_actor_system': False,
+                    'manual_locks': True
+                })
+            else:
+                # For other implementations, don't use any special flags
+                combinations.append({
+                    'image': image,
+                    'compaction_threshold': threshold,
+                    'peers': peers,
+                    'operations': operations,
+                    'concurrency': concurrency,
+                    'distributed_actor_system': False,
+                    'manual_locks': False
+                })
 
         return combinations
 
@@ -200,7 +246,15 @@ class RaftDistributedTestRunner:
             # Start node containers
             for i, server_name in enumerate(node_servers):
                 node_id = i + 1
+                # Build the base command
                 command = f"docker run -d --name raft_node_{node_id} -p 50051:50051 {params['image']} peer --id {node_id} --port 50051 --address {SERVERS[server_name]} --peers '{peers_config}' --compaction-threshold {params['compaction_threshold']}"
+
+                # Add distributed actor system flag if enabled
+                if params.get('distributed_actor_system'):
+                    command += " --use-distributed-actor-system"
+                # Add manual locks flag if enabled
+                if params.get('manual_locks'):
+                    command += " --use-manual-lock"
                 self.logger.info(f"Starting node {node_id} on {server_name} with command: {command}")
                 self._execute_remote_command(server_name, command)
 
@@ -219,8 +273,10 @@ class RaftDistributedTestRunner:
                 env_flags = " ".join([f"-e {key}={value}" for key, value in env_vars.items() if value])
 
                 client_command = f"docker run --name raft_client {env_flags} {client_image} client --peers {peers_config} --stress-test --operations {params['operations']} --concurrency {params['concurrency']} --test-suite '{self.test_suite_name}'"
-                if params.get('use_actors'):
-                    client_command += " --actors"
+
+                # Add distributed actor system flag if enabled
+                if params.get('distributed_actor_system'):
+                    client_command += " --use-distributed-actor-system"
 
                 self.logger.info(f"Starting client on {client_server} with command: {client_command}")
                 self._execute_remote_command(client_server, client_command)
@@ -292,10 +348,10 @@ class RaftDistributedTestRunner:
                   peer_counts: List[int],
                   operation_counts: List[int],
                   concurrency_levels: List[int],
-                  client_image: str, use_actors: bool):
+                  client_image: str):
         combinations = self.generate_test_combinations(
             images, compaction_thresholds, peer_counts, operation_counts,
-            concurrency_levels, use_actors
+            concurrency_levels
         )
         self.total_tests = len(combinations)
         self.logger.info(f"Starting distributed test suite: {self.test_suite_name}")
@@ -377,7 +433,6 @@ def main():
     parser.add_argument("--peer-counts", nargs="+", type=int, default=[3])
     parser.add_argument("--operation-counts", nargs="+", type=int, default=[10000])
     parser.add_argument("--concurrency-levels", nargs="+", type=int, default=[2])
-    parser.add_argument("--actors", action="store_true")
     parser.add_argument("--test-suite", type=str)
     parser.add_argument("--report", type=str)
     parser.add_argument("--timeout", type=int, default=180)
@@ -399,8 +454,7 @@ def main():
             peer_counts=args.peer_counts,
             operation_counts=args.operation_counts,
             concurrency_levels=args.concurrency_levels,
-            client_image=args.client_image,
-            use_actors=args.actors
+            client_image=args.client_image
         )
         runner.generate_report(args.report)
     except KeyboardInterrupt:

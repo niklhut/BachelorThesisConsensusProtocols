@@ -28,11 +28,13 @@ except ImportError:
 
 # Server configuration
 SERVERS = {
-    "zs01": "10.10.2.181",
-    # "zs02": "10.10.2.182",
+    # "zs01": "10.10.2.181",
+    "zs02": "10.10.2.182",
     "zs03": "10.10.2.183",
     "zs04": "10.10.2.184",
     "zs05": "10.10.2.185",
+    # "zs06": "10.10.2.186",
+    "zs07": "10.10.2.187",
     "zs08": "10.10.2.188",
 }
 
@@ -181,16 +183,6 @@ class RaftDistributedTestRunner:
                     'distributed_actor_system': False,
                     'manual_locks': False
                 })
-                # Test with both flags on
-                combinations.append({
-                    'image': image,
-                    'compaction_threshold': threshold,
-                    'peers': peers,
-                    'operations': operations,
-                    'concurrency': concurrency,
-                    'distributed_actor_system': True,
-                    'manual_locks': True
-                })
                 # Test with distributed_actor_system on, manual_locks off
                 combinations.append({
                     'image': image,
@@ -209,6 +201,16 @@ class RaftDistributedTestRunner:
                     'operations': operations,
                     'concurrency': concurrency,
                     'distributed_actor_system': False,
+                    'manual_locks': True
+                })
+                # Test with both flags on
+                combinations.append({
+                    'image': image,
+                    'compaction_threshold': threshold,
+                    'peers': peers,
+                    'operations': operations,
+                    'concurrency': concurrency,
+                    'distributed_actor_system': True,
                     'manual_locks': True
                 })
             else:
@@ -247,7 +249,7 @@ class RaftDistributedTestRunner:
             for i, server_name in enumerate(node_servers):
                 node_id = i + 1
                 # Build the base command
-                command = f"docker run -d --name raft_node_{node_id} -p 50051:50051 {params['image']} peer --id {node_id} --port 50051 --address {SERVERS[server_name]} --peers '{peers_config}' --compaction-threshold {params['compaction_threshold']}"
+                command = f"docker run -d --name raft_node_{node_id} --network host {params['image']} peer --id {node_id} --port 50051 --address {SERVERS[server_name]} --peers '{peers_config}' --compaction-threshold {params['compaction_threshold']}"
 
                 # Add distributed actor system flag if enabled
                 if params.get('distributed_actor_system'):
@@ -272,7 +274,7 @@ class RaftDistributedTestRunner:
                 }
                 env_flags = " ".join([f"-e {key}={value}" for key, value in env_vars.items() if value])
 
-                client_command = f"docker run --name raft_client {env_flags} {client_image} client --peers {peers_config} --stress-test --operations {params['operations']} --concurrency {params['concurrency']} --test-suite '{self.test_suite_name}'"
+                client_command = f"docker run --name raft_client --network host {env_flags} {client_image} client --peers {peers_config} --stress-test --operations {params['operations']} --concurrency {params['concurrency']} --test-suite '{self.test_suite_name}'"
 
                 # Add distributed actor system flag if enabled
                 if params.get('distributed_actor_system'):

@@ -33,7 +33,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
                 group.addTask {
                     let _ = try await actorSystem.cluster.joined(
                         endpoint: Cluster.Endpoint(host: peer.address, port: peer.port),
-                        within: .seconds(5),
+                        within: .seconds(10),
                     )
                 }
             }

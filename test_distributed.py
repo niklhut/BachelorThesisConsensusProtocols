@@ -29,7 +29,7 @@ except ImportError:
 # Server configuration
 SERVERS = {
     # "zs01": "10.10.2.181",
-    "zs02": "10.10.2.182",
+    # "zs02": "10.10.2.182",
     "zs03": "10.10.2.183",
     "zs04": "10.10.2.184",
     "zs05": "10.10.2.185",
@@ -238,7 +238,6 @@ class RaftDistributedTestRunner:
         node_servers = server_names[:params['peers']]
         client_server = node_servers[-1] # Co-locate client with the last node
 
-        peers_config = ",".join([f"{i+1}:{SERVERS[server_name]}:50051" for i, server_name in enumerate(node_servers)])
 
         repetition_results = []
         start_time = time.time()
@@ -248,6 +247,9 @@ class RaftDistributedTestRunner:
             # Start node containers
             for i, server_name in enumerate(node_servers):
                 node_id = i + 1
+
+                peers_config = ",".join([f"{i+1}:{SERVERS[peer_server_name]}:50051" for i, peer_server_name in enumerate(node_servers) if peer_server_name != server_name])
+
                 # Build the base command
                 command = f"docker run -d --name raft_node_{node_id} --network host {params['image']} peer --id {node_id} --port 50051 --address {SERVERS[server_name]} --peers '{peers_config}' --compaction-threshold {params['compaction_threshold']}"
 
@@ -273,6 +275,8 @@ class RaftDistributedTestRunner:
                     "STRESS_TEST_MACHINE_NAME": os.environ.get("STRESS_TEST_MACHINE_NAME"),
                 }
                 env_flags = " ".join([f"-e {key}={value}" for key, value in env_vars.items() if value])
+
+                peers_config = ",".join([f"{i+1}:{SERVERS[server_name]}:50051" for i, server_name in enumerate(node_servers)])
 
                 client_command = f"docker run --name raft_client --network host {env_flags} {client_image} client --peers {peers_config} --stress-test --operations {params['operations']} --concurrency {params['concurrency']} --test-suite '{self.test_suite_name}'"
 

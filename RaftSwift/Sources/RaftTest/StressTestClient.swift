@@ -143,16 +143,21 @@ public actor StressTestClient<Transport: RaftClientTransport> {
 
         do {
             let result = try await client.put(request: value, to: currentLeader)
+            let latency = Date().timeIntervalSince(startTime) * 1000
 
             if let leaderHint = result.leaderHint {
                 leader = leaderHint
-                return await putEntry(value, startTime: startTime)
+                return await putEntry(value)
+            } else if !result.success {
+                // Wait for leader election then retry with new leader
+                try await Task.sleep(for: .milliseconds(100))
+                leader = try await client.findLeader()
+                return await putEntry(value)
+            } else {
+                return (result.success, latency)
             }
-
-            let latency = Date().timeIntervalSince(startTime) * 1000
-            return (result.success, latency)
         } catch {
-            return await putEntry(value, startTime: startTime)
+            return await putEntry(value)
         }
     }
 

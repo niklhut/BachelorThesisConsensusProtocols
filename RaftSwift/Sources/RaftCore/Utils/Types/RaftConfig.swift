@@ -1,7 +1,7 @@
 /// Configuration for the Raft node.
 public struct RaftConfig: Sendable {
     /// The range of election timeout in milliseconds
-    public let electionTimeoutRange: ClosedRange<Int> = 300 ... 600
+    public let electionTimeoutRange: ClosedRange<Int> = 500 ... 1000
 
     /// The interval of heartbeats in milliseconds
     public let heartbeatInterval = 50

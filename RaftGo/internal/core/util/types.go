@@ -48,9 +48,9 @@ type RaftConfig struct {
 // NewRaftConfig creates a new default RaftConfig.
 func NewRaftConfig() RaftConfig {
 	return RaftConfig{
-		ElectionTimeoutMinMs: 300,
-		ElectionTimeoutMaxMs: 600,
-		HeartbeatIntervalMs:  100,
+		ElectionTimeoutMinMs: 500,
+		ElectionTimeoutMaxMs: 1000,
+		HeartbeatIntervalMs:  50,
 		CompactionThreshold:  1000,
 	}
 }

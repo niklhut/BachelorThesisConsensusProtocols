@@ -8,6 +8,7 @@ import time
 from datetime import datetime
 import logging
 import signal
+import random
 
 from dotenv import load_dotenv
 
@@ -139,136 +140,147 @@ class RaftSwarmTestRunner:
 
         return combinations
 
+    def _start_nodes(self, params, node_servers, port):
+        procs = []
+        for i, hostname in enumerate(node_servers):
+            node_id = i + 1
+            svc_name = f"{SERVICE_PREFIX}raft_node_{node_id}"
+
+            flags = ""
+            if params.get('distributed_actor_system'):
+                flags += " --use-distributed-actor-system"
+            if params.get('manual_locks'):
+                flags += " --use-manual-lock"
+
+            peers_config = ",".join([
+                f"{idx+1}:{SERVERS[peer_host]}:{port}"
+                for idx, peer_host in enumerate(node_servers)
+                if peer_host != hostname
+            ])
+
+            cmd = (
+                f"docker service create --with-registry-auth "
+                f"--name {svc_name} "
+                f"--network host --restart-condition none "
+                f"--constraint 'node.hostname=={hostname}' "
+                f"{params['image']} peer --id {node_id} --port {port} "
+                f"--address {SERVERS[hostname]} --peers '{peers_config}' "
+                f"--compaction-threshold {params['compaction_threshold']}{flags}"
+            )
+            procs.append(self._run_cmd(cmd, check=False, background=True))
+
+        time.sleep(5)
+
     def _run_single_test(self, test_number, params, client_image):
         test_name = f"Test {test_number}/{self.total_tests}"
         self.logger.info(f"Starting {test_name} - Params: {params}")
 
-        server_names = list(SERVERS.keys())
-        node_servers = server_names[:params['peers']]
+        node_servers = list(SERVERS.keys())[:params['peers']]
         client_server = node_servers[-1]
 
         start_time = time.time()
         repetition_results = []
 
+        port = random.randint(50000, 50100)
+
         try:
-            # Start node services with registry credential sharing in parallel
-            procs = []
-            for i, hostname in enumerate(node_servers):
-                node_id = i + 1
-                svc_name = f"{SERVICE_PREFIX}raft_node_{node_id}"
+            # Start nodes before first repetition
+            self._start_nodes(params, node_servers, port)
 
-                port = 50051
-                flags = ""
-                if params.get('distributed_actor_system'):
-                    flags += " --use-distributed-actor-system"
-                    port = 50052
-                if params.get('manual_locks'):
-                    flags += " --use-manual-lock"
-
-                peers_config = ",".join([
-                    f"{idx+1}:{SERVERS[peer_host]}:{port}"
-                    for idx, peer_host in enumerate(node_servers)
-                    if peer_host != hostname
-                ])
-
-                cmd = (
-                    f"docker service create --with-registry-auth "
-                    f"--name {svc_name} "
-                    f"--network host --restart-condition none "
-                    f"--constraint 'node.hostname=={hostname}' "
-                    f"{params['image']} peer --id {node_id} --port {port} "
-                    f"--address {SERVERS[hostname]} --peers '{peers_config}' "
-                    f"--compaction-threshold {params['compaction_threshold']}{flags}"
-                )
-                procs.append(self._run_cmd(cmd, check=False, background=True))
-
-            # Wait for all service create commands to finish
-            for p in procs:
-                p.wait()
-
-            # Client repetitions
             for r in range(self.repetitions):
                 rep_name = f"{test_name} Rep {r+1}/{self.repetitions}"
                 self.logger.info(f"Starting {rep_name}")
-                client_svc = f"{SERVICE_PREFIX}raft_client_{int(time.time())}"
 
-                # Environment variables
-                env_vars = {
-                    "STRESS_TEST_BASE_URL": os.environ.get("STRESS_TEST_BASE_URL"),
-                    "STRESS_TEST_API_KEY": os.environ.get("STRESS_TEST_API_KEY"),
-                    "STRESS_TEST_MACHINE_NAME": os.environ.get("STRESS_TEST_MACHINE_NAME"),
-                }
-                env_flags = " ".join([f"-e {key}={value}" for key, value in env_vars.items() if value])
+                attempt = 0
+                status = None
 
-                port = 50051
-                flags = ""
-                if params.get('distributed_actor_system'):
-                    flags += " --use-distributed-actor-system"
-                    port = 50052
+                while attempt < self.retries:
+                    attempt += 1
+                    self.logger.info(f"Repetition {r+1}, Attempt {attempt}/{self.retries}")
 
-                peers_config = ",".join([
-                    f"{idx+1}:{SERVERS[host]}:{port}"
-                    for idx, host in enumerate(node_servers)
-                ])
+                    if r == 0 and attempt > 1:
+                        # Restart everything for first repetition retry
+                        self.logger.info("Restarting ALL services for first repetition retry...")
+                        self._remove_all_services()
+                        port = random.randint(50000, 50100)
+                        self._start_nodes(params, node_servers, port)
+                    elif r > 0 and attempt > 1:
+                        # Just restart the client for later repetitions
+                        self.logger.info("Retrying client only for later repetition...")
 
-                cmd = (
-                    f"docker service create --with-registry-auth "
-                    f"--name {client_svc} "
-                    f"--network host --restart-condition none "
-                    f"--constraint 'node.hostname=={client_server}' "
-                    f"{env_flags} "
-                    f"{client_image} client --peers {peers_config} --stress-test "
-                    f"--operations {params['operations']} --concurrency {params['concurrency']} "
-                    f"--test-suite '{self.test_suite_name}'{flags}"
-                )
-                self._run_cmd(cmd, check=False, background=True)
+                    # Start client
+                    client_svc = f"{SERVICE_PREFIX}raft_client_{int(time.time())}"
+                    env_vars = {
+                        "STRESS_TEST_BASE_URL": os.environ.get("STRESS_TEST_BASE_URL"),
+                        "STRESS_TEST_API_KEY": os.environ.get("STRESS_TEST_API_KEY"),
+                        "STRESS_TEST_MACHINE_NAME": os.environ.get("STRESS_TEST_MACHINE_NAME"),
+                    }
+                    env_flags = " ".join([f"-e {k}={v}" for k, v in env_vars.items() if v])
 
-                # Wait for client to finish with timeout
-                self.logger.info(f"Waiting for {client_svc} to complete (timeout {self.timeout}s)...")
-                start_time_client = time.time()
-                status = "TIMEOUT"
+                    flags = ""
+                    if params.get('distributed_actor_system'):
+                        flags += " --use-distributed-actor-system"
 
-                terminal_states = ["Complete", "Shutdown", "Failed", "Rejected"]
+                    peers_config = ",".join([
+                        f"{idx+1}:{SERVERS[host]}:{port}"
+                        for idx, host in enumerate(node_servers)
+                    ])
 
-                while time.time() - start_time_client < self.timeout:
-                    if self.interrupted:
-                        status = "INTERRUPTED"
-                        break
+                    cmd = (
+                        f"docker service create --with-registry-auth "
+                        f"--name {client_svc} "
+                        f"--network host --restart-condition none "
+                        f"--constraint 'node.hostname=={client_server}' "
+                        f"{env_flags} "
+                        f"{client_image} client --peers {peers_config} --stress-test "
+                        f"--operations {params['operations']} --concurrency {params['concurrency']} "
+                        f"--test-suite '{self.test_suite_name}'{flags}"
+                    )
+                    self._run_cmd(cmd, check=False, background=True)
 
-                    tasks_state = self._run_cmd(
-                        f"docker service ps {client_svc} --format '{{{{.CurrentState}}}}'",
-                        check=False
-                    ).splitlines()
+                    # Wait for client
+                    start_time_client = time.time()
+                    status = "TIMEOUT"
+                    terminal_states = ["Complete", "Shutdown", "Failed", "Rejected"]
 
-                    self.logger.debug(f"Task states for {client_svc}: {tasks_state}")
+                    while time.time() - start_time_client < self.timeout:
+                        if self.interrupted:
+                            status = "INTERRUPTED"
+                            break
 
-                    # If there are no tasks yet, keep waiting
-                    if not tasks_state:
+                        tasks_state = self._run_cmd(
+                            f"docker service ps {client_svc} --format '{{{{.CurrentState}}}}'",
+                            check=False
+                        ).splitlines()
+
+                        if not tasks_state:
+                            time.sleep(2)
+                            continue
+
+                        if all(any(state.startswith(s) for s in terminal_states) for state in tasks_state):
+                            if all(state.startswith("Complete") for state in tasks_state):
+                                status = "SUCCESS"
+                            else:
+                                status = "FAILED"
+                                logs = self._run_cmd(f"docker service logs {client_svc}", check=False)
+                                self.logger.error(f"Client {client_svc} failed:\n{logs}")
+                            break
+
                         time.sleep(2)
-                        continue
 
-                    if all(any(state.startswith(s) for s in terminal_states) for state in tasks_state):
-                        # Determine success/failure directly from the states
-                        if all(state.startswith("Complete") for state in tasks_state):
-                            status = "SUCCESS"
-                        else:
-                            status = "FAILED"
-                            logs = self._run_cmd(f"docker service logs {client_svc}", check=False)
-                            self.logger.error(f"Client {client_svc} failed with logs:\n{logs}")
+                    if status == "SUCCESS":
                         break
+                    else:
+                        self.logger.warning(f"Attempt {attempt} failed ({status}). Retrying...")
 
-                    time.sleep(2)
-
-                if status == "TIMEOUT":
-                    self.logger.error(f"Timeout waiting for {client_svc} - forcibly removing service.")
-                    self._run_cmd(f"docker service rm {client_svc}", check=False)
+                repetition_results.append({"repetition": r+1, "status": status})
         finally:
             self._remove_all_services()
 
         return {
             "test_number": test_number,
             "parameters": params,
-            "success": all(r["status"] == "SUCCESS" for r in repetition_results),
+            "success": all(rep["status"] == "SUCCESS" for rep in repetition_results),
             "duration": time.time() - start_time,
             "repetitions": repetition_results
         }

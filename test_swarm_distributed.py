@@ -285,17 +285,19 @@ class RaftSwarmTestRunner:
             "repetitions": repetition_results
         }
 
-    def run_tests(self, images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, client_image):
+    def run_tests(self, images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, client_image, resume_from=1):
         combinations = self.generate_test_combinations(images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels)
         self.total_tests = len(combinations)
 
         for idx, params in enumerate(combinations, start=1):
+            if idx < resume_from:
+                self.logger.info(f"Skipping Test {idx}/{self.total_tests} due to resume setting...")
+                continue
             if self.interrupted:
                 break
             self.results.append(self._run_single_test(idx, params, client_image))
 
         return self.results
-
 
     def generate_report(self, output_file: str = None):
         if not output_file:
@@ -348,6 +350,7 @@ def main():
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--test-suite", type=str, help="Name of the test suite (overrides default timestamped name)")
+    parser.add_argument("--resume", type=int, default=1, help="Resume from the given test number")
     args = parser.parse_args()
 
     runner = RaftSwarmTestRunner(
@@ -363,8 +366,8 @@ def main():
         operation_counts=args.operation_counts,
         concurrency_levels=args.concurrency_levels,
         client_image=args.client_image,
+        resume_from=args.resume
     )
-
     runner.generate_report()
 
 if __name__ == "__main__":

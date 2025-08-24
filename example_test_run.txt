@@ -14,10 +14,40 @@ python test_distributed.py \
     "registry.niklabs.de/niklhut/raftkotlin:latest" \
     "registry.niklabs.de/niklhut/raftgo:latest" \
   --client-image "registry.niklabs.de/niklhut/raftswift:latest" \
-  --peer-counts 3 5 \
+  --peer-counts 3 5 7 \
   --operation-counts 10000 20000 50000 \
-  --concurrency-levels 5 10 20 40 \
-  --timeout 300 \
+  --concurrency-levels 5 10 20 \
+  --compaction-thresholds 1000 2000 5000 \
+  --timeout 250 \
   --retries 2 \
   --repetitions 3 \
-  --test-suite "Distributed Test"
+  --test-suite "Distributed Test 2025-08-07"
+
+python test_swarm_distributed.py \
+  --images "registry.niklabs.de/niklhut/raftswift:1.3.4" \
+  "registry.niklabs.de/niklhut/raftkotlin:1.3.4" \
+  "registry.niklabs.de/niklhut/raftgo:1.3.2" \
+  --client-image "registry.niklabs.de/niklhut/raftswift:1.3.4" \
+  --peer-counts 3 5 7 \
+  --operation-counts 10000 20000 50000 \
+  --concurrency-levels 5 10 20 \
+  --compaction-thresholds 1000 2000 5000 \
+  --timeout 250 \
+  --retries 2 \
+  --repetitions 3 \
+  --test-suite "Test Swarm 2025-08-09"
+
+
+nohup python test_swarm_distributed.py \
+  --images "registry.niklabs.de/niklhut/raftswift:1.3.4" \
+  "registry.niklabs.de/niklhut/raftkotlin:1.3.4" \
+  "registry.niklabs.de/niklhut/raftgo:1.3.2" \
+  --client-image "registry.niklabs.de/niklhut/raftswift:1.3.4" \
+  --peer-counts 3 5 7 \
+  --operation-counts 50000 \
+  --concurrency-levels 10 \
+  --compaction-thresholds 500 1000 2000 5000 \
+  --timeout 250 \
+  --retries 2 \
+  --repetitions 3 \
+  --test-suite "Test Compaction Threshold (50000 operations, 10 concurrency)" &

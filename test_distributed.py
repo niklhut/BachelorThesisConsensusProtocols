@@ -13,6 +13,7 @@ from datetime import datetime
 from typing import List, Dict, Any
 import logging
 import signal
+import threading
 
 try:
     import paramiko
@@ -28,14 +29,14 @@ except ImportError:
 
 # Server configuration
 SERVERS = {
-    # "zs01": "10.10.2.181",
-    # "zs02": "10.10.2.182",
     "zs03": "10.10.2.183",
     "zs04": "10.10.2.184",
     "zs05": "10.10.2.185",
     # "zs06": "10.10.2.186",
     "zs07": "10.10.2.187",
     "zs08": "10.10.2.188",
+    "zs01": "10.10.2.181",
+    "zs02": "10.10.2.182",
 }
 
 class RaftDistributedTestRunner:
@@ -114,26 +115,37 @@ class RaftDistributedTestRunner:
                 self.logger.warning(f"Error disconnecting from {server_name}: {e}")
         self.ssh_clients = {}
 
-    def _execute_remote_command(self, server_name: str, command: str):
-        """Execute a command on a remote server."""
+    def _execute_remote_command(self, server_name: str, command: str, timeout: int = 10):
+        """Execute a command on a remote server with a timeout in seconds."""
         if server_name not in self.ssh_clients:
             self._connect_ssh(server_name)
 
         client = self.ssh_clients[server_name]
-        try:
-            stdin, stdout, stderr = client.exec_command(command)
-            exit_code = stdout.channel.recv_exit_status()
-            output = stdout.read().decode('utf-8').strip()
-            error = stderr.read().decode('utf-8').strip()
-            if exit_code != 0:
-                self.logger.error(f"Command failed on {server_name}: {command}")
-                self.logger.error(f"Exit code: {exit_code}")
-                self.logger.error(f"Stdout: {output}")
-                self.logger.error(f"Stderr: {error}")
-            return output, error, exit_code
-        except Exception as e:
-            self.logger.error(f"Exception executing command on {server_name}: {e}")
-            return None, str(e), -1
+        output = {'stdout': None, 'stderr': None, 'exit_code': -1, 'exception': None}
+
+        def run():
+            try:
+                stdin, stdout, stderr = client.exec_command(command)
+                channel = stdout.channel
+                channel.settimeout(timeout)
+                output['exit_code'] = channel.recv_exit_status()
+                output['stdout'] = stdout.read().decode('utf-8').strip()
+                output['stderr'] = stderr.read().decode('utf-8').strip()
+            except Exception as e:
+                output['exception'] = e
+
+        thread = threading.Thread(target=run)
+        thread.start()
+        thread.join(timeout)
+        if thread.is_alive():
+            self.logger.error(f"Command timed out after {timeout}s on {server_name}: {command}")
+            return None, f"Timeout after {timeout}s", -1
+
+        if output['exception']:
+            self.logger.error(f"Exception executing command on {server_name}: {output['exception']}")
+            return None, str(output['exception']), -1
+
+        return output['stdout'], output['stderr'], output['exit_code']
 
     def _cleanup_containers_on_all_servers(self):
         """Clean up containers on all servers."""
@@ -301,8 +313,14 @@ class RaftDistributedTestRunner:
                         self.logger.error(f"{rep_name} failed. Aborting all repetitions for this test.")
                         first_repetition_failed = True
                         break
+                    elif i < self.retries:  # If we have retries left
+                        self.logger.warning(f"{rep_name} failed. Retrying... (Attempt {i+1}/{self.retries})")
+                        i -= 1  # Decrement i to retry the same repetition
                     else:
-                        self.logger.warning(f"{rep_name} failed. Continuing with next repetition.")
+                        self.logger.error(f"{rep_name} failed after {self.retries} attempts. Aborting all repetitions for this test.")
+                        first_repetition_failed = True
+                        break
+
 
         except Exception as e:
             self.logger.error(f"Error during test execution: {e}")
@@ -337,15 +355,18 @@ class RaftDistributedTestRunner:
             if self.interrupted:
                 return "INTERRUPTED"
 
-            output, _, exit_code = self._execute_remote_command(server_name, "docker inspect -f '{{.State.Status}}' raft_client")
+            output, _, exit_code = self._execute_remote_command(server_name, "docker inspect -f '{{.State.Status}}' raft_client", timeout=5)
             if exit_code == 0 and output == 'exited':
-                _, _, exit_code_container = self._execute_remote_command(server_name, "docker inspect -f '{{.State.ExitCode}}' raft_client")
+                _, _, exit_code_container = self._execute_remote_command(server_name, "docker inspect -f '{{.State.ExitCode}}' raft_client", timeout=5)
                 self.logger.info(f"Client container exited with code: {exit_code_container}")
                 return "SUCCESS" if exit_code_container == 0 else "FAILED"
 
             time.sleep(2)
 
-        self.logger.error("Timeout waiting for client completion")
+        # Timeout reached - forcibly kill client
+        self.logger.error("Timeout waiting for client completion - forcibly stopping container.")
+        self._execute_remote_command(server_name, "docker stop -t 0 raft_client || true", timeout=5)
+        self._execute_remote_command(server_name, "docker rm raft_client || true", timeout=5)
         return "TIMEOUT"
 
     def run_tests(self,
@@ -380,12 +401,10 @@ class RaftDistributedTestRunner:
 
                 if attempt < self.retries - 1:
                     self.logger.warning(f"Test {test_number} failed on attempt {attempt + 1}/{self.retries} because first repetition failed. Retrying...")
-                    time.sleep(5)
                 else:
                     self.logger.error(f"Test {test_number} failed on all {self.retries} attempts because first repetition failed.")
 
             self.results.append(result)
-            time.sleep(2)
 
         self._disconnect_ssh()
         return self.results

@@ -18,9 +18,9 @@ SERVERS = {
     "zs04.lab.dm.informatik.tu-darmstadt.de": "10.10.2.184",
     "zs05.lab.dm.informatik.tu-darmstadt.de": "10.10.2.185",
     "zs07.lab.dm.informatik.tu-darmstadt.de": "10.10.2.187",
-    "zs01.lab.dm.informatik.tu-darmstadt.de": "10.10.2.181",
     "zs02.lab.dm.informatik.tu-darmstadt.de": "10.10.2.182",
     "zs08.lab.dm.informatik.tu-darmstadt.de": "10.10.2.188",
+    "zs01.lab.dm.informatik.tu-darmstadt.de": "10.10.2.181",
 }
 
 SERVICE_PREFIX = "nhuthmann_"

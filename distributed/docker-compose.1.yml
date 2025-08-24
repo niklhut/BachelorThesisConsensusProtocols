@@ -1,0 +1,39 @@
+services:
+  raft_node_1:
+    image: registry.niklabs.de/niklhut/raftgo
+    container_name: raft_node_1
+    ports:
+      - "10001:10001"
+    networks:
+      - raftnet
+    command:
+      - peer
+      - --id
+      - '1'
+      - --port
+      - '10001'
+      - --address
+      - 10.10.2.181
+      - --peers
+      - 2:10.10.2.182:10002,3:10.10.2.183:10003
+      - --compaction-threshold
+      - '1000'
+
+  raft_client:
+    image: registry.niklabs.de/niklhut/raftswift
+    container_name: raft_client
+    networks:
+      - raftnet
+    environment:
+      - STRESS_TEST_BASE_URL=${STRESS_TEST_BASE_URL}
+      - STRESS_TEST_API_KEY=${STRESS_TEST_API_KEY}
+      - STRESS_TEST_MACHINE_NAME=${STRESS_TEST_MACHINE_NAME}
+    entrypoint:
+      - sh
+      - -c
+      - sleep 5 && ./Raft client --peers 1:10.10.2.181:10001,2:10.10.2.182:10002,3:10.10.2.183:10003
+        --stress-test --operations 50000 --concurrency 10 --test-suite 'Test Suite 2025-07-16 11:01:57'
+
+networks:
+  raftnet:
+    driver: bridge

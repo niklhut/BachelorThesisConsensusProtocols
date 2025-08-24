@@ -1,0 +1,25 @@
+services:
+  raft_node_3:
+    image: registry.niklabs.de/niklhut/raftgo
+    container_name: raft_node_3
+    ports:
+      - "10003:10003"
+    networks:
+      - raftnet
+    command:
+      - peer
+      - --id
+      - '3'
+      - --port
+      - '10003'
+      - --address
+      - 10.10.2.183
+      - --peers
+      - 1:10.10.2.181:10001,2:10.10.2.182:10002
+      - --compaction-threshold
+      - '1000'
+      - --use-distributed-actor-system
+
+networks:
+  raftnet:
+    driver: bridge

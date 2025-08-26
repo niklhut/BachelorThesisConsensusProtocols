@@ -11,6 +11,7 @@ import raft.getResponse
 import raft.serverStateResponse
 import raft.serverTermResponse
 import raft.transport.grpc.utils.extensions.toGRPC
+import java.time.Instant
 
 /**
  * gRPC service implementation for Raft client operations.
@@ -70,14 +71,18 @@ class ClientService(
         }
     }
 
-    override suspend fun getDiagnostics(request: Empty): Client.DiagnosticsResponse {
-        val response = node.getDiagnostics()
+    override suspend fun getDiagnostics(request: Client.DiagnosticsRequest): Client.DiagnosticsResponse {
+        val response = node.getDiagnostics(request = DiagnosticsRequest(
+            start = Instant.ofEpochSecond(request.startTime.seconds, request.startTime.nanos.toLong()),
+            end = Instant.ofEpochSecond(request.endTime.seconds, request.endTime.nanos.toLong()))
+        )
 
         return diagnosticsResponse {
             id = response.id
             implementation = response.implementation
             version = response.version
             compactionThreshold = response.compactionThreshold
+            metrics.addAll(response.metrics.toGRPC())
         }
     }
 }

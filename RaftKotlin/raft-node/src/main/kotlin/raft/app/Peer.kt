@@ -40,6 +40,9 @@ class PeerCommand : CliktCommand(
         .int()
         .default(1000)
 
+    private val collectMetrics by option("--collect-metrics", help = "Enable metrics collection")
+        .flag()
+
     override fun run() = runBlocking {
         val ownPeer = Peer(id = id, address = address, port = port)
 
@@ -51,8 +54,12 @@ class PeerCommand : CliktCommand(
             else -> throw IllegalArgumentException("Unknown persistence type: $persistence")
         }
 
-        val server: RaftNodeApplication =
-            RaftGRPCServer(ownPeer = ownPeer, peers = peers.toMutableList(), persistence = persistenceLayer)
+        val server: RaftNodeApplication = RaftGRPCServer(
+            ownPeer = ownPeer,
+            peers = peers.toMutableList(),
+            persistence = persistenceLayer,
+            collectMetrics = collectMetrics,
+        )
 
         server.serve()
     }

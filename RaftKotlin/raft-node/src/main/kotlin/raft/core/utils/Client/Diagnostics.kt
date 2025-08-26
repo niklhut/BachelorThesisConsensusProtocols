@@ -1,5 +1,19 @@
 package raft.core.utils.client
 
+import raft.core.utils.types.MetricsSample
+import java.time.Instant
+
+data class DiagnosticsRequest(
+    /**
+     * The start time of the diagnostics request
+     */
+    val start: Instant,
+    /**
+     * The end time of the diagnostics request
+     */
+    val end: Instant
+)
+
 /**
  * A response to a implementation version request.
  */
@@ -19,5 +33,9 @@ data class DiagnosticsResponse(
     /**
      * The compaction threshold of the server
      */
-    val compactionThreshold: Int
+    val compactionThreshold: Int,
+    /**
+     * The metrics collected by the server
+     */
+    val metrics: List<MetricsSample>
 )

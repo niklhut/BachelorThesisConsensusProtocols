@@ -28,9 +28,11 @@ class RaftNode(
         config: RaftConfig,
         private val transport: RaftNodeTransport,
         persistence: RaftNodePersistence,
+        private val collectMetrics: Boolean,
 ) {
     private val logger: Logger = LoggerFactory.getLogger("raft.RaftNode.${ownPeer.id}")
     private val mutex = Mutex()
+    private val metricsCollector = if (collectMetrics) MetricsCollector(interval = 250.milliseconds, maxSamples = 1000) else null
 
     private var heartbeatJob: Job? = null
     private val scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
@@ -456,13 +458,19 @@ class RaftNode(
      *
      * @return The DiagnosticsResponse.
      */
-    public suspend fun getDiagnostics(): DiagnosticsResponse {
+    public suspend fun getDiagnostics(request: DiagnosticsRequest): DiagnosticsResponse {
+         val samples = metricsCollector?.getSamples(
+             start = request.start,
+             end = request.end
+         ) ?: emptyList()
+
         mutex.withLock {
             return DiagnosticsResponse(
-                    id = persistentState.ownPeer.id,
-                    implementation = "Kotlin",
-                    version = "1.3.1",
-                    compactionThreshold = persistentState.persistence.compactionThreshold,
+                id = persistentState.ownPeer.id,
+                implementation = "Kotlin",
+                version = "1.4.0",
+                compactionThreshold = persistentState.persistence.compactionThreshold,
+                metrics = samples,
             )
         }
     }

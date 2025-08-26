@@ -23,8 +23,9 @@ import java.net.InetSocketAddress
 class RaftGRPCServer(
     ownPeer: Peer,
     peers: MutableList<Peer>,
-    persistence: RaftNodePersistence
-) : RaftNodeApplication(ownPeer, peers, persistence) {
+    persistence: RaftNodePersistence,
+    collectMetrics: Boolean
+) : RaftNodeApplication(ownPeer, peers, persistence, collectMetrics) {
 
     private val logger: Logger = LoggerFactory.getLogger(RaftGRPCServer::class.java)
     private var server: Server? = null
@@ -50,7 +51,8 @@ class RaftGRPCServer(
                     )
                 )
             ),
-            persistence = persistence
+            persistence = persistence,
+            collectMetrics = collectMetrics
         )
 
         val peerService = PeerService(node)

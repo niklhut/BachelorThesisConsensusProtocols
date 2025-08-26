@@ -19,6 +19,10 @@ abstract class RaftNodeApplication {
      * The persistence layer.
      */
     val persistence: RaftNodePersistence
+    /**
+     * Whether to collect metrics.
+     */
+    val collectMetrics: Boolean
 
     /**
      * Constructor for a Raft node application.
@@ -27,10 +31,11 @@ abstract class RaftNodeApplication {
      * @param peers The list of peers.
      * @param persistence The persistence layer.
      */
-    constructor(ownPeer: Peer, peers: MutableList<Peer>, persistence: RaftNodePersistence) {
+    constructor(ownPeer: Peer, peers: MutableList<Peer>, persistence: RaftNodePersistence, collectMetrics: Boolean) {
         this.ownPeer = ownPeer
         this.peers = peers
         this.persistence = persistence
+        this.collectMetrics = collectMetrics
     }
 
     /**

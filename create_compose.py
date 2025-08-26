@@ -3,7 +3,19 @@ import yaml
 from datetime import datetime
 import shlex
 
-def generate_compose(image: str, client_image: str, num_peers: int, operations: int, concurrency: int, compaction_threshold: int, test_suite: str = None, client_start_delay: int = 5, distributed_actor_system: bool = False, manual_locks: bool = False):
+def generate_compose(
+       image: str,
+       client_image: str,
+       num_peers: int,
+       operations: int,
+       concurrency: int,
+       compaction_threshold: int,
+       test_suite: str = None,
+       client_start_delay: int = 5,
+       distributed_actor_system: bool = False,
+       manual_locks: bool = False,
+       collect_metrics: bool = False
+   ):
     services = {}
     network_name = "raftnet"
     peers = ",".join(
@@ -28,6 +40,8 @@ def generate_compose(image: str, client_image: str, num_peers: int, operations: 
             "--peers", peer_peers,
             "--compaction-threshold", str(compaction_threshold),
         ]
+        if collect_metrics:
+            peer_command.append("--collect-metrics")
         if distributed_actor_system:
             peer_command.append("--use-distributed-actor-system")
         if manual_locks:
@@ -99,6 +113,7 @@ def main():
     default_test_suite = f"Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
     parser.add_argument("--test-suite", type=str, default=default_test_suite, help=f"Name of the test suite to run (default: {default_test_suite})")
     parser.add_argument("--client-start-delay", type=int, default=5, help="Delay in seconds before starting the client (default: 5)")
+    parser.add_argument("--collect-metrics", action="store_true", help="Collect metrics during the stress test")
     args = parser.parse_args()
 
     compose_yaml = generate_compose(
@@ -111,7 +126,8 @@ def main():
         test_suite=args.test_suite,
         client_start_delay=args.client_start_delay,
         distributed_actor_system=args.distributed_actor_system,
-        manual_locks=args.manual_locks
+        manual_locks=args.manual_locks,
+        collect_metrics=args.collect_metrics
     )
 
     with open(args.output, "w") as f:

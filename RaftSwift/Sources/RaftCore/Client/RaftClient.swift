@@ -105,8 +105,8 @@ public actor RaftClient<Transport: RaftClientTransport> {
     ///   - isolation: The isolation to use for the request.
     /// - Returns: The response from the peer.
     /// - Throws: An error if the request could not be sent.
-    public func getDiagnostics(of peer: Peer) async throws -> DiagnosticsResponse {
-        try await transport.getDiagnostics(of: peer, isolation: #isolation)
+    public func getDiagnostics(request: DiagnosticsRequest, of peer: Peer) async throws -> DiagnosticsResponse {
+        try await transport.getDiagnostics(request, of: peer, isolation: #isolation)
     }
 
     // MARK: - Helpers

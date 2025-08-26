@@ -8,15 +8,23 @@ public final class RaftGRPCServer: RaftNodeApplication {
     public let ownPeer: Peer
     public let peers: [Peer]
     public let persistence: any RaftNodePersistence
+    public let collectMetrics: Bool
     public let useManualLock: Bool
 
     /// The logger
     let logger = Logger(label: "raft.RaftGRPCServer")
 
-    public init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence, useManualLock: Bool) {
+    public init(
+        ownPeer: Peer,
+        peers: [Peer],
+        persistence: any RaftNodePersistence,
+        collectMetrics: Bool,
+        useManualLock: Bool
+    ) {
         self.ownPeer = ownPeer
         self.peers = peers
         self.persistence = persistence
+        self.collectMetrics = collectMetrics
         self.useManualLock = useManualLock
     }
 
@@ -30,6 +38,7 @@ public final class RaftGRPCServer: RaftNodeApplication {
                     ServerIDInjectionInterceptor(peerID: ownPeer.id),
                 ])),
                 persistence: persistence,
+                collectMetrics: collectMetrics,
             )
         } else {
             RaftNode(
@@ -40,6 +49,7 @@ public final class RaftGRPCServer: RaftNodeApplication {
                     ServerIDInjectionInterceptor(peerID: ownPeer.id),
                 ])),
                 persistence: persistence,
+                collectMetrics: collectMetrics,
             )
         }
         let peerService = PeerService(node: node)

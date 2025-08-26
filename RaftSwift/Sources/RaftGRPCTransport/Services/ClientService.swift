@@ -1,3 +1,4 @@
+import Foundation
 import GRPCCore
 import RaftCore
 import SwiftProtobuf
@@ -64,14 +65,18 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
         }
     }
 
-    func getDiagnostics(request: Google_Protobuf_Empty, context: ServerContext) async throws -> Raft_DiagnosticsResponse {
-        let response: DiagnosticsResponse = await node.getDiagnostics()
+    func getDiagnostics(request: Raft_DiagnosticsRequest, context: ServerContext) async throws -> Raft_DiagnosticsResponse {
+        let response: DiagnosticsResponse = await node.getDiagnostics(request: DiagnosticsRequest(
+            start: Date.fromGRPC(request.startTime),
+            end: Date.fromGRPC(request.endTime),
+        ))
 
         return .with { grpcResponse in
             grpcResponse.id = UInt32(response.id)
             grpcResponse.implementation = response.implementation
             grpcResponse.version = response.version
             grpcResponse.compactionThreshold = UInt32(response.compactionThreshold)
+            grpcResponse.metrics = response.metrics?.toGRPC() ?? []
         }
     }
 }

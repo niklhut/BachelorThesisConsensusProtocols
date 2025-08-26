@@ -102,6 +102,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             let throughput = testDuration > 0 ? Double(operations) / testDuration : 0
 
             let result = RaftStressTestResult(
+                start: startTime,
+                end: Date(),
                 messagesSent: operations,
                 successfulMessages: successful,
                 averageLatency: averageLatency,
@@ -203,7 +205,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         let clientDiagnostics = try await withThrowingTaskGroup(of: DiagnosticsResponse.self) { group in
             for peer in client.peers {
                 group.addTask {
-                    try await self.client.getDiagnostics(of: peer)
+                    let diagnosticsRequest = DiagnosticsRequest(start: result.start, end: result.end)
+                    return try await self.client.getDiagnostics(request: diagnosticsRequest, of: peer)
                 }
             }
 
@@ -223,6 +226,21 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             logger.error("Implementation versions do not match across all nodes")
         }
 
+        let nodes: [RaftStressTestPayload.RaftStressTestMetrics.Node] = clientDiagnostics.compactMap { diagnostics in
+            guard let metrics = diagnostics.metrics else { return nil }
+            let samples = metrics.map { metric in
+                RaftStressTestPayload.RaftStressTestMetrics.Node.Sample(
+                    measuredAt: metric.timestamp,
+                    cpuUsage: metric.cpu,
+                    memoryUsage: metric.memoryMB,
+                )
+            }
+            return RaftStressTestPayload.RaftStressTestMetrics.Node(name: "Node \(diagnostics.id)", samples: samples)
+        }
+        let metrics = RaftStressTestPayload.RaftStressTestMetrics(nodes: nodes)
+
+        logger.info("Metrics: \(metrics)")
+
         let baseUrl = ProcessInfo.processInfo.environment["STRESS_TEST_BASE_URL"] ?? "http://localhost:3000"
         logger.info("Sending stress test data to \(baseUrl)")
         guard let url = URL(string: baseUrl + "/api/stress-test") else { return }
@@ -239,11 +257,12 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             compactionThreshold: implementationVersion.compactionThreshold,
             machine: machineName,
             numberOfPeers: result.numberOfPeers,
-            peerVersion: RaftImplementationVersion(
+            peerVersion: RaftStressTestPayload.RaftImplementationVersion(
                 implementation: implementationVersion.implementation,
                 version: implementationVersion.version,
             ),
             testSuite: testSuite,
+            metrics: metrics,
         )
 
         var request = URLRequest(url: url)
@@ -253,7 +272,9 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
 
         do {
-            let jsonData = try JSONEncoder().encode(payload)
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            let jsonData = try encoder.encode(payload)
             request.httpBody = jsonData
         } catch {
             print("Failed to encode payload:", error)

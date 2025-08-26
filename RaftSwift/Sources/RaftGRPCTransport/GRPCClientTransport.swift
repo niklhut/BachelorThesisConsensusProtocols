@@ -142,17 +142,22 @@ final class GRPCClientTransport: RaftClientTransport {
     }
 
     func getDiagnostics(
+        _ request: DiagnosticsRequest,
         of peer: Peer,
         isolation: isolated any Actor,
     ) async throws -> DiagnosticsResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
-            let response = try await client.getDiagnostics(Google_Protobuf_Empty())
+            let response = try await client.getDiagnostics(.with { grpcRequest in
+                grpcRequest.startTime = request.start.toGRPC()
+                grpcRequest.endTime = request.end.toGRPC()
+            })
 
             return DiagnosticsResponse(
                 id: Int(response.id),
                 implementation: response.implementation + " (GRPC)",
                 version: response.version,
                 compactionThreshold: Int(response.compactionThreshold),
+                metrics: [MetricsSample].fromGRPC(response.metrics),
             )
         }
     }

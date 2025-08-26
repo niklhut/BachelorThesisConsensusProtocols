@@ -32,6 +32,9 @@ final class Peer: AsyncParsableCommand {
     @Option(help: "The compaction threshold")
     var compactionThreshold: Int = 1000
 
+    @Flag(help: "Enable metrics collection, only works in docker container")
+    var collectMetrics: Bool = false
+
     @Flag(help: "Use Manual Lock for RaftNode")
     var useManualLock: Bool = false
 
@@ -50,9 +53,21 @@ final class Peer: AsyncParsableCommand {
             }
 
         let server: any RaftNodeApplication = if useDistributedActorSystem {
-            RaftDistributedActorServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer, useManualLock: useManualLock)
+            RaftDistributedActorServer(
+                ownPeer: ownPeer,
+                peers: peers,
+                persistence: persistenceLayer,
+                collectMetrics: collectMetrics,
+                useManualLock: useManualLock,
+            )
         } else {
-            RaftGRPCServer(ownPeer: ownPeer, peers: peers, persistence: persistenceLayer, useManualLock: useManualLock)
+            RaftGRPCServer(
+                ownPeer: ownPeer,
+                peers: peers,
+                persistence: persistenceLayer,
+                collectMetrics: collectMetrics,
+                useManualLock: useManualLock,
+            )
         }
         try await server.serve()
     }

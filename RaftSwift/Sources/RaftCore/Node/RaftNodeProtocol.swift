@@ -8,7 +8,7 @@ public protocol RaftNodeProtocol: Sendable {
     func getDebug(request: GetRequest) async -> GetResponse
     func getState() async -> ServerStateResponse
     func getTerm() async -> ServerTermResponse
-    func getDiagnostics() async -> DiagnosticsResponse
+    func getDiagnostics(request: DiagnosticsRequest) async -> DiagnosticsResponse
 
     func start() async
 }

@@ -1,4 +1,8 @@
+import Foundation
+
 struct RaftStressTestResult: Codable {
+    let start: Date
+    let end: Date
     let messagesSent: Int
     let successfulMessages: Int
     let averageLatency: Double
@@ -33,9 +37,25 @@ struct RaftStressTestPayload: Codable {
     let numberOfPeers: Int
     let peerVersion: RaftImplementationVersion
     let testSuite: String?
-}
+    let metrics: RaftStressTestMetrics?
 
-struct RaftImplementationVersion: Codable {
-    let implementation: String
-    let version: String
+    struct RaftStressTestMetrics: Codable {
+        let nodes: [Node]
+
+        struct Node: Codable {
+            let name: String
+            let samples: [Sample]
+
+            struct Sample: Codable {
+                let measuredAt: Date
+                let cpuUsage: Double
+                let memoryUsage: Double
+            }
+        }
+    }
+
+    struct RaftImplementationVersion: Codable {
+        let implementation: String
+        let version: String
+    }
 }

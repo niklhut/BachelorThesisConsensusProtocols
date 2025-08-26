@@ -79,6 +79,7 @@ public protocol RaftClientTransport: Sendable {
     /// - Returns: The response from the peer.
     /// - Throws: An error if the request could not be sent.
     func getDiagnostics(
+        _ request: DiagnosticsRequest,
         of peer: Peer,
         isolation: isolated (any Actor),
     ) async throws -> DiagnosticsResponse

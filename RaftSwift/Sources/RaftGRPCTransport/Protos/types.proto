@@ -37,6 +37,17 @@ message LogEntry {
   optional string value = 3;
 }
 
+message MetricsSample {
+  // The timestamp when the metric was recorded
+  google.protobuf.Timestamp timestamp = 1;
+
+  // The CPU usage percentage
+  double cpu = 2;
+
+  // The memory usage percentage
+  double memoryMB = 3;
+}
+
 // The durable state persisted to disk across crashes
 message PersistentState {
   // Latest term server has seen (initialized to 0)

@@ -10,6 +10,8 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
     private let transport: any RaftNodeTransport
     /// The logger for logging messages.
     let logger: Logger
+    /// The metrics collector for collecting metrics.
+    let metricsCollector: MetricsCollector?
 
     /// The task for the heartbeat/election loop.
     private var heartbeatTask: Task<Void, Never>?
@@ -35,10 +37,19 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
     ///   - peers: The list of peers.
     ///   - config: The configuration.
     ///   - transport: The transport layer.
-    public init(_ ownPeer: Peer, peers: [Peer], config: RaftConfig, transport: any RaftNodeTransport, persistence: any RaftNodePersistence) {
+    public init(
+        _ ownPeer: Peer,
+        peers: [Peer],
+        config: RaftConfig,
+        transport: any RaftNodeTransport,
+        persistence: any RaftNodePersistence,
+        collectMetrics: Bool
+    ) {
         self.transport = transport
         let newLogger = Logger(label: "raft.RaftNode.\(ownPeer.id)")
         logger = newLogger
+
+        metricsCollector = collectMetrics ? try? MetricsCollector(interval: .milliseconds(250), maxSamples: 1000) : nil
 
         persistentState = PersistentState(
             ownPeer: ownPeer,
@@ -373,14 +384,23 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
 
     /// Handles a GetDiagnostics RPC.
     ///
+    /// - Parameters:
+    ///   - request: The DiagnosticsRequest to handle.
     /// - Returns: The DiagnosticsResponse.
-    public func getDiagnostics() async -> DiagnosticsResponse {
-        lock.withLock {
+    public func getDiagnostics(request: DiagnosticsRequest) async -> DiagnosticsResponse {
+        let samples: [MetricsSample]? = if let metricsCollector {
+            await metricsCollector.getSamples(start: request.start, end: request.end)
+        } else {
+            nil
+        }
+
+        return lock.withLock {
             DiagnosticsResponse(
                 id: persistentState.ownPeer.id,
                 implementation: "Swift (Manual Locks)",
-                version: "1.3.1",
+                version: "1.4.0",
                 compactionThreshold: persistentState.persistence.compactionThreshold,
+                metrics: samples,
             )
         }
     }

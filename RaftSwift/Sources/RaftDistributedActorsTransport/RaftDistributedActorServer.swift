@@ -7,46 +7,60 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
     public let ownPeer: Peer
     public let peers: [Peer]
     public let persistence: any RaftNodePersistence
+    public let collectMetrics: Bool
     public let useManualLock: Bool
 
     /// The logger
     let logger = Logger(label: "raft.RaftDistributedActorServer")
 
-    public init(ownPeer: Peer, peers: [Peer], persistence: any RaftNodePersistence, useManualLock: Bool) {
+    public init(
+        ownPeer: Peer,
+        peers: [Peer],
+        persistence: any RaftNodePersistence,
+        collectMetrics: Bool,
+        useManualLock: Bool
+    ) {
         self.ownPeer = ownPeer
         self.peers = peers
         self.persistence = persistence
+        self.collectMetrics = collectMetrics
         self.useManualLock = useManualLock
     }
 
     public func serve() async throws {
         var node: (any RaftNodeProtocol)? = nil
 
-        let actorSystem = await ClusterSystem("raft.DistributedActorSystem.\(ownPeer.id)") { settings in
+        let actorSystem = await ClusterSystem("raft.DistributedActorSystem.\(ownPeer.id)") {
+            settings in
             settings.bindPort = ownPeer.port
             settings.bindHost = ownPeer.address
             settings.downingStrategy = .timeout(.default)
         }
 
-        let transport = DistributedActorNodeTransport(nodeProvider: { node }, peers: peers, actorSystem: actorSystem)
+        let transport = DistributedActorNodeTransport(
+            nodeProvider: { node }, peers: peers, actorSystem: actorSystem,
+        )
 
-        node = if useManualLock {
-            RaftNodeManualLock(
-                ownPeer,
-                peers: peers,
-                config: RaftConfig(),
-                transport: transport,
-                persistence: persistence,
-            )
-        } else {
-            RaftNode(
-                ownPeer,
-                peers: peers,
-                config: RaftConfig(),
-                transport: transport,
-                persistence: persistence,
-            )
-        }
+        node =
+            if useManualLock {
+                RaftNodeManualLock(
+                    ownPeer,
+                    peers: peers,
+                    config: RaftConfig(),
+                    transport: transport,
+                    persistence: persistence,
+                    collectMetrics: collectMetrics,
+                )
+            } else {
+                RaftNode(
+                    ownPeer,
+                    peers: peers,
+                    config: RaftConfig(),
+                    transport: transport,
+                    persistence: persistence,
+                    collectMetrics: collectMetrics,
+                )
+            }
 
         try await transport.setNode()
 

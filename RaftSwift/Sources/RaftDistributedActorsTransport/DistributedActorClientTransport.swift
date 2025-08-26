@@ -73,12 +73,13 @@ distributed actor DistributedActorClientTransport: RaftClientTransport, Lifecycl
     }
 
     func getDiagnostics(
+        _ request: DiagnosticsRequest,
         of peer: Peer,
         isolation: isolated any Actor,
     ) async throws -> DiagnosticsResponse {
         let remoteActor = try await getRemoteActor(peer)
 
-        return try await remoteActor.getDiagnostics()
+        return try await remoteActor.getDiagnostics(request)
     }
 }
 
@@ -109,14 +110,15 @@ extension DistributedActorNodeTransport {
         await node.getTerm()
     }
 
-    distributed func getDiagnostics() async -> DiagnosticsResponse {
-        let diagnostics = await node.getDiagnostics()
+    distributed func getDiagnostics(_ request: DiagnosticsRequest) async -> DiagnosticsResponse {
+        let diagnostics = await node.getDiagnostics(request: request)
 
         return DiagnosticsResponse(
             id: diagnostics.id,
             implementation: diagnostics.implementation + " (Distributed Actors)",
             version: diagnostics.version,
             compactionThreshold: diagnostics.compactionThreshold,
+            metrics: diagnostics.metrics,
         )
     }
 }

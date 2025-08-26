@@ -239,8 +239,6 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         }
         let metrics = RaftStressTestPayload.RaftStressTestMetrics(nodes: nodes)
 
-        logger.info("Metrics: \(metrics)")
-
         let baseUrl = ProcessInfo.processInfo.environment["STRESS_TEST_BASE_URL"] ?? "http://localhost:3000"
         logger.info("Sending stress test data to \(baseUrl)")
         guard let url = URL(string: baseUrl + "/api/stress-test") else { return }

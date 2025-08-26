@@ -10,6 +10,7 @@ import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	emptypb "google.golang.org/protobuf/types/known/emptypb"
+	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -341,6 +342,60 @@ func (x *ServerTermResponse) GetTerm() uint64 {
 	return 0
 }
 
+type DiagnosticsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// The start time for the metrics request
+	StartTime *timestamppb.Timestamp `protobuf:"bytes,1,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
+	// The end time for the metrics request
+	EndTime       *timestamppb.Timestamp `protobuf:"bytes,2,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DiagnosticsRequest) Reset() {
+	*x = DiagnosticsRequest{}
+	mi := &file_client_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DiagnosticsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DiagnosticsRequest) ProtoMessage() {}
+
+func (x *DiagnosticsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_client_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DiagnosticsRequest.ProtoReflect.Descriptor instead.
+func (*DiagnosticsRequest) Descriptor() ([]byte, []int) {
+	return file_client_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *DiagnosticsRequest) GetStartTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.StartTime
+	}
+	return nil
+}
+
+func (x *DiagnosticsRequest) GetEndTime() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EndTime
+	}
+	return nil
+}
+
 // Response containing the diagnostics of the server
 type DiagnosticsResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -352,13 +407,15 @@ type DiagnosticsResponse struct {
 	Version string `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
 	// The compaction threshold of the server
 	CompactionThreshold uint32 `protobuf:"varint,4,opt,name=compaction_threshold,json=compactionThreshold,proto3" json:"compaction_threshold,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	// The list of recorded metrics
+	Metrics       []*MetricsSample `protobuf:"bytes,5,rep,name=metrics,proto3" json:"metrics,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *DiagnosticsResponse) Reset() {
 	*x = DiagnosticsResponse{}
-	mi := &file_client_proto_msgTypes[6]
+	mi := &file_client_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -370,7 +427,7 @@ func (x *DiagnosticsResponse) String() string {
 func (*DiagnosticsResponse) ProtoMessage() {}
 
 func (x *DiagnosticsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_client_proto_msgTypes[6]
+	mi := &file_client_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -383,7 +440,7 @@ func (x *DiagnosticsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DiagnosticsResponse.ProtoReflect.Descriptor instead.
 func (*DiagnosticsResponse) Descriptor() ([]byte, []int) {
-	return file_client_proto_rawDescGZIP(), []int{6}
+	return file_client_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *DiagnosticsResponse) GetId() uint32 {
@@ -414,11 +471,18 @@ func (x *DiagnosticsResponse) GetCompactionThreshold() uint32 {
 	return 0
 }
 
+func (x *DiagnosticsResponse) GetMetrics() []*MetricsSample {
+	if x != nil {
+		return x.Metrics
+	}
+	return nil
+}
+
 var File_client_proto protoreflect.FileDescriptor
 
 const file_client_proto_rawDesc = "" +
 	"\n" +
-	"\fclient.proto\x12\x04raft\x1a\x1bgoogle/protobuf/empty.proto\x1a\vtypes.proto\"C\n" +
+	"\fclient.proto\x12\x04raft\x1a\x1bgoogle/protobuf/empty.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\vtypes.proto\"C\n" +
 	"\n" +
 	"PutRequest\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x19\n" +
@@ -445,20 +509,25 @@ const file_client_proto_rawDesc = "" +
 	"\x05state\x18\x02 \x01(\x0e2\x11.raft.ServerStateR\x05state\"8\n" +
 	"\x12ServerTermResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12\x12\n" +
-	"\x04term\x18\x02 \x01(\x04R\x04term\"\x9a\x01\n" +
+	"\x04term\x18\x02 \x01(\x04R\x04term\"\x86\x01\n" +
+	"\x12DiagnosticsRequest\x129\n" +
+	"\n" +
+	"start_time\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +
+	"\bend_time\x18\x02 \x01(\v2\x1a.google.protobuf.TimestampR\aendTime\"\xc9\x01\n" +
 	"\x13DiagnosticsResponse\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\rR\x02id\x12&\n" +
 	"\x0eimplementation\x18\x02 \x01(\tR\x0eimplementation\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\tR\aversion\x121\n" +
-	"\x14compaction_threshold\x18\x04 \x01(\rR\x13compactionThreshold2\xe8\x02\n" +
+	"\x14compaction_threshold\x18\x04 \x01(\rR\x13compactionThreshold\x12-\n" +
+	"\ametrics\x18\x05 \x03(\v2\x13.raft.MetricsSampleR\ametrics2\xea\x02\n" +
 	"\n" +
 	"RaftClient\x12*\n" +
 	"\x03Put\x12\x10.raft.PutRequest\x1a\x11.raft.PutResponse\x12*\n" +
 	"\x03Get\x12\x10.raft.GetRequest\x1a\x11.raft.GetResponse\x12/\n" +
 	"\bGetDebug\x12\x10.raft.GetRequest\x1a\x11.raft.GetResponse\x12E\n" +
 	"\x0eGetServerState\x12\x16.google.protobuf.Empty\x1a\x19.raft.ServerStateResponse\"\x00\x12C\n" +
-	"\rGetServerTerm\x12\x16.google.protobuf.Empty\x1a\x18.raft.ServerTermResponse\"\x00\x12E\n" +
-	"\x0eGetDiagnostics\x12\x16.google.protobuf.Empty\x1a\x19.raft.DiagnosticsResponse\"\x00B:Z8github.com/niklhut/raft_go/internal/transport/grpc/protob\x06proto3"
+	"\rGetServerTerm\x12\x16.google.protobuf.Empty\x1a\x18.raft.ServerTermResponse\"\x00\x12G\n" +
+	"\x0eGetDiagnostics\x12\x18.raft.DiagnosticsRequest\x1a\x19.raft.DiagnosticsResponse\"\x00B:Z8github.com/niklhut/raft_go/internal/transport/grpc/protob\x06proto3"
 
 var (
 	file_client_proto_rawDescOnce sync.Once
@@ -472,40 +541,46 @@ func file_client_proto_rawDescGZIP() []byte {
 	return file_client_proto_rawDescData
 }
 
-var file_client_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_client_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
 var file_client_proto_goTypes = []any{
-	(*PutRequest)(nil),          // 0: raft.PutRequest
-	(*PutResponse)(nil),         // 1: raft.PutResponse
-	(*GetRequest)(nil),          // 2: raft.GetRequest
-	(*GetResponse)(nil),         // 3: raft.GetResponse
-	(*ServerStateResponse)(nil), // 4: raft.ServerStateResponse
-	(*ServerTermResponse)(nil),  // 5: raft.ServerTermResponse
-	(*DiagnosticsResponse)(nil), // 6: raft.DiagnosticsResponse
-	(*Peer)(nil),                // 7: raft.Peer
-	(ServerState)(0),            // 8: raft.ServerState
-	(*emptypb.Empty)(nil),       // 9: google.protobuf.Empty
+	(*PutRequest)(nil),            // 0: raft.PutRequest
+	(*PutResponse)(nil),           // 1: raft.PutResponse
+	(*GetRequest)(nil),            // 2: raft.GetRequest
+	(*GetResponse)(nil),           // 3: raft.GetResponse
+	(*ServerStateResponse)(nil),   // 4: raft.ServerStateResponse
+	(*ServerTermResponse)(nil),    // 5: raft.ServerTermResponse
+	(*DiagnosticsRequest)(nil),    // 6: raft.DiagnosticsRequest
+	(*DiagnosticsResponse)(nil),   // 7: raft.DiagnosticsResponse
+	(*Peer)(nil),                  // 8: raft.Peer
+	(ServerState)(0),              // 9: raft.ServerState
+	(*timestamppb.Timestamp)(nil), // 10: google.protobuf.Timestamp
+	(*MetricsSample)(nil),         // 11: raft.MetricsSample
+	(*emptypb.Empty)(nil),         // 12: google.protobuf.Empty
 }
 var file_client_proto_depIdxs = []int32{
-	7, // 0: raft.PutResponse.leader_hint:type_name -> raft.Peer
-	7, // 1: raft.GetResponse.leader_hint:type_name -> raft.Peer
-	8, // 2: raft.ServerStateResponse.state:type_name -> raft.ServerState
-	0, // 3: raft.RaftClient.Put:input_type -> raft.PutRequest
-	2, // 4: raft.RaftClient.Get:input_type -> raft.GetRequest
-	2, // 5: raft.RaftClient.GetDebug:input_type -> raft.GetRequest
-	9, // 6: raft.RaftClient.GetServerState:input_type -> google.protobuf.Empty
-	9, // 7: raft.RaftClient.GetServerTerm:input_type -> google.protobuf.Empty
-	9, // 8: raft.RaftClient.GetDiagnostics:input_type -> google.protobuf.Empty
-	1, // 9: raft.RaftClient.Put:output_type -> raft.PutResponse
-	3, // 10: raft.RaftClient.Get:output_type -> raft.GetResponse
-	3, // 11: raft.RaftClient.GetDebug:output_type -> raft.GetResponse
-	4, // 12: raft.RaftClient.GetServerState:output_type -> raft.ServerStateResponse
-	5, // 13: raft.RaftClient.GetServerTerm:output_type -> raft.ServerTermResponse
-	6, // 14: raft.RaftClient.GetDiagnostics:output_type -> raft.DiagnosticsResponse
-	9, // [9:15] is the sub-list for method output_type
-	3, // [3:9] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	8,  // 0: raft.PutResponse.leader_hint:type_name -> raft.Peer
+	8,  // 1: raft.GetResponse.leader_hint:type_name -> raft.Peer
+	9,  // 2: raft.ServerStateResponse.state:type_name -> raft.ServerState
+	10, // 3: raft.DiagnosticsRequest.start_time:type_name -> google.protobuf.Timestamp
+	10, // 4: raft.DiagnosticsRequest.end_time:type_name -> google.protobuf.Timestamp
+	11, // 5: raft.DiagnosticsResponse.metrics:type_name -> raft.MetricsSample
+	0,  // 6: raft.RaftClient.Put:input_type -> raft.PutRequest
+	2,  // 7: raft.RaftClient.Get:input_type -> raft.GetRequest
+	2,  // 8: raft.RaftClient.GetDebug:input_type -> raft.GetRequest
+	12, // 9: raft.RaftClient.GetServerState:input_type -> google.protobuf.Empty
+	12, // 10: raft.RaftClient.GetServerTerm:input_type -> google.protobuf.Empty
+	6,  // 11: raft.RaftClient.GetDiagnostics:input_type -> raft.DiagnosticsRequest
+	1,  // 12: raft.RaftClient.Put:output_type -> raft.PutResponse
+	3,  // 13: raft.RaftClient.Get:output_type -> raft.GetResponse
+	3,  // 14: raft.RaftClient.GetDebug:output_type -> raft.GetResponse
+	4,  // 15: raft.RaftClient.GetServerState:output_type -> raft.ServerStateResponse
+	5,  // 16: raft.RaftClient.GetServerTerm:output_type -> raft.ServerTermResponse
+	7,  // 17: raft.RaftClient.GetDiagnostics:output_type -> raft.DiagnosticsResponse
+	12, // [12:18] is the sub-list for method output_type
+	6,  // [6:12] is the sub-list for method input_type
+	6,  // [6:6] is the sub-list for extension type_name
+	6,  // [6:6] is the sub-list for extension extendee
+	0,  // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_client_proto_init() }
@@ -523,7 +598,7 @@ func file_client_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_client_proto_rawDesc), len(file_client_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   8,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

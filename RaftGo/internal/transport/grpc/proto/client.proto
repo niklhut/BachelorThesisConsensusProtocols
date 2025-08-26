@@ -2,6 +2,7 @@ syntax = "proto3";
 package raft;
 
 import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
 import "types.proto";
 
 option go_package = "github.com/niklhut/raft_go/internal/transport/grpc/proto";
@@ -24,7 +25,7 @@ service RaftClient {
   rpc GetServerTerm(google.protobuf.Empty) returns (ServerTermResponse) {}
 
   // Get the diagnostics of a server
-  rpc GetDiagnostics(google.protobuf.Empty) returns (DiagnosticsResponse) {}
+  rpc GetDiagnostics(DiagnosticsRequest) returns (DiagnosticsResponse) {}
 }
 
 // Request to store or update a key-value pair
@@ -76,6 +77,14 @@ message ServerTermResponse {
   uint64 term = 2;
 }
 
+message DiagnosticsRequest {
+  // The start time for the metrics request
+  google.protobuf.Timestamp start_time = 1;
+
+  // The end time for the metrics request
+  google.protobuf.Timestamp end_time = 2;
+}
+
 // Response containing the diagnostics of the server
 message DiagnosticsResponse {
   // The ID of the server
@@ -89,4 +98,7 @@ message DiagnosticsResponse {
 
   // The compaction threshold of the server
   uint32 compaction_threshold = 4;
+
+  // The list of recorded metrics
+  repeated MetricsSample metrics = 5;
 }

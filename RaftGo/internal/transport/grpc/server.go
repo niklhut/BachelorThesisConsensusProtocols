@@ -14,18 +14,25 @@ import (
 )
 
 type RaftGRPCServer struct {
-	ownPeer     util.Peer
-	peers       []util.Peer
-	logger      *slog.Logger
-	persistence node.RaftNodePersistence
+	ownPeer        util.Peer
+	peers          []util.Peer
+	logger         *slog.Logger
+	persistence    node.RaftNodePersistence
+	collectMetrics bool
 }
 
-func NewRaftGRPCServer(ownPeer util.Peer, peers []util.Peer, persistence node.RaftNodePersistence) *RaftGRPCServer {
+func NewRaftGRPCServer(
+	ownPeer util.Peer,
+	peers []util.Peer,
+	persistence node.RaftNodePersistence,
+	collectMetrics bool,
+) *RaftGRPCServer {
 	return &RaftGRPCServer{
-		ownPeer:     ownPeer,
-		peers:       peers,
-		logger:      slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
-		persistence: persistence,
+		ownPeer:        ownPeer,
+		peers:          peers,
+		logger:         slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo})),
+		persistence:    persistence,
+		collectMetrics: collectMetrics,
 	}
 }
 
@@ -48,7 +55,7 @@ func (s *RaftGRPCServer) Serve(ctx context.Context) error {
 	transport := NewGRPCRaftNodeTransport(clientPool)
 
 	config := util.NewRaftConfig()
-	raftNode := node.NewRaftNode(s.ownPeer, s.peers, config, transport, s.persistence)
+	raftNode := node.NewRaftNode(s.ownPeer, s.peers, config, transport, s.persistence, s.collectMetrics)
 
 	// Start server
 	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", s.ownPeer.Port))

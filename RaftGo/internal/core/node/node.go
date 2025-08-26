@@ -43,8 +43,9 @@ type RaftNodeTransport interface {
 type RaftNode struct {
 	mu sync.RWMutex // Mutex to protect the node's state
 
-	transport RaftNodeTransport // An interface for peer communication
-	logger    *slog.Logger      // Structured logger
+	transport        RaftNodeTransport // An interface for peer communication
+	logger           *slog.Logger      // Structured logger
+	metricsCollector *util.MetricsCollector
 
 	heartbeatCancel context.CancelFunc
 	heartbeatMu     sync.Mutex
@@ -65,7 +66,14 @@ func (rn *RaftNode) Majority() int {
 
 // NewRaftNode creates and initializes a new RaftNode.
 // This is the Go constructor function.
-func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, transport RaftNodeTransport, persistence RaftNodePersistence) *RaftNode {
+func NewRaftNode(
+	ownPeer util.Peer,
+	peers []util.Peer,
+	config util.RaftConfig,
+	transport RaftNodeTransport,
+	persistence RaftNodePersistence,
+	collectMetrics bool,
+) *RaftNode {
 	// Initialize persistent state with the provided config
 	persistentState := PersistentState{
 		OwnPeer:           ownPeer,
@@ -100,12 +108,29 @@ func NewRaftNode(ownPeer util.Peer, peers []util.Peer, config util.RaftConfig, t
 	handler := slog.NewTextHandler(os.Stdout, &loggerOptions)
 	logger := slog.New(handler).With(slog.Int("nodeID", ownPeer.ID))
 
+	var collector *util.MetricsCollector
+	var err error
+	if collectMetrics {
+		collector, err = util.NewMetricsCollector(250*time.Millisecond, 1000)
+	} else {
+		collector = nil
+		err = nil
+	}
+	if err != nil {
+		logger.Error("Failed to create metrics collector",
+			slog.String("error", err.Error()),
+		)
+	} else {
+		logger.Info("Metrics collector initialized")
+	}
+
 	rn := &RaftNode{
-		transport:       transport,
-		logger:          logger,
-		persistentState: persistentState,
-		volatileState:   volatileState,
-		leaderState:     leaderState,
+		transport:        transport,
+		logger:           logger,
+		metricsCollector: collector,
+		persistentState:  persistentState,
+		volatileState:    volatileState,
+		leaderState:      leaderState,
 	}
 
 	return rn
@@ -487,15 +512,21 @@ func (rn *RaftNode) GetTerm(ctx context.Context) util.ServerTermResponse {
 	}
 }
 
-func (rn *RaftNode) GetDiagnostics(ctx context.Context) util.DiagnosticsResponse {
+func (rn *RaftNode) GetDiagnostics(ctx context.Context, request util.DiagnosticsRequest) util.DiagnosticsResponse {
+	var samples []util.MetricsSample
+	if rn.metricsCollector != nil {
+		samples = rn.metricsCollector.GetSamples(request.Start, request.End)
+	}
+
 	rn.mu.RLock()
 	defer rn.mu.RUnlock()
 
 	return util.DiagnosticsResponse{
 		ID:                  rn.persistentState.OwnPeer.ID,
 		Implementation:      "Go",
-		Version:             "1.3.1",
+		Version:             "1.4.0",
 		CompactionThreshold: rn.persistentState.Persistence.CompactionThreshold(),
+		Metrics:             samples,
 	}
 }
 

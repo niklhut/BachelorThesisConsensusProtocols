@@ -45,7 +45,7 @@ type RaftClientClient interface {
 	// Get the term of a server
 	GetServerTerm(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServerTermResponse, error)
 	// Get the diagnostics of a server
-	GetDiagnostics(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DiagnosticsResponse, error)
+	GetDiagnostics(ctx context.Context, in *DiagnosticsRequest, opts ...grpc.CallOption) (*DiagnosticsResponse, error)
 }
 
 type raftClientClient struct {
@@ -106,7 +106,7 @@ func (c *raftClientClient) GetServerTerm(ctx context.Context, in *emptypb.Empty,
 	return out, nil
 }
 
-func (c *raftClientClient) GetDiagnostics(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*DiagnosticsResponse, error) {
+func (c *raftClientClient) GetDiagnostics(ctx context.Context, in *DiagnosticsRequest, opts ...grpc.CallOption) (*DiagnosticsResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(DiagnosticsResponse)
 	err := c.cc.Invoke(ctx, RaftClient_GetDiagnostics_FullMethodName, in, out, cOpts...)
@@ -133,7 +133,7 @@ type RaftClientServer interface {
 	// Get the term of a server
 	GetServerTerm(context.Context, *emptypb.Empty) (*ServerTermResponse, error)
 	// Get the diagnostics of a server
-	GetDiagnostics(context.Context, *emptypb.Empty) (*DiagnosticsResponse, error)
+	GetDiagnostics(context.Context, *DiagnosticsRequest) (*DiagnosticsResponse, error)
 	mustEmbedUnimplementedRaftClientServer()
 }
 
@@ -159,7 +159,7 @@ func (UnimplementedRaftClientServer) GetServerState(context.Context, *emptypb.Em
 func (UnimplementedRaftClientServer) GetServerTerm(context.Context, *emptypb.Empty) (*ServerTermResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetServerTerm not implemented")
 }
-func (UnimplementedRaftClientServer) GetDiagnostics(context.Context, *emptypb.Empty) (*DiagnosticsResponse, error) {
+func (UnimplementedRaftClientServer) GetDiagnostics(context.Context, *DiagnosticsRequest) (*DiagnosticsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetDiagnostics not implemented")
 }
 func (UnimplementedRaftClientServer) mustEmbedUnimplementedRaftClientServer() {}
@@ -274,7 +274,7 @@ func _RaftClient_GetServerTerm_Handler(srv interface{}, ctx context.Context, dec
 }
 
 func _RaftClient_GetDiagnostics_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(emptypb.Empty)
+	in := new(DiagnosticsRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -286,7 +286,7 @@ func _RaftClient_GetDiagnostics_Handler(srv interface{}, ctx context.Context, de
 		FullMethod: RaftClient_GetDiagnostics_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RaftClientServer).GetDiagnostics(ctx, req.(*emptypb.Empty))
+		return srv.(RaftClientServer).GetDiagnostics(ctx, req.(*DiagnosticsRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

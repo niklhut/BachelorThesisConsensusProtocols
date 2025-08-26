@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	"github.com/niklhut/raft_go/internal/transport/grpc/proto"
 
@@ -73,14 +74,30 @@ func (s *RaftClientService) GetServerTerm(ctx context.Context, _ *emptypb.Empty)
 	}, nil
 }
 
-func (s *RaftClientService) GetDiagnostics(ctx context.Context, _ *emptypb.Empty) (*proto.DiagnosticsResponse, error) {
-	version := s.node.GetDiagnostics(ctx)
+func (s *RaftClientService) GetDiagnostics(ctx context.Context, req *proto.DiagnosticsRequest) (*proto.DiagnosticsResponse, error) {
+	version := s.node.GetDiagnostics(ctx, util.DiagnosticsRequest{
+		Start: req.StartTime.AsTime(),
+		End:   req.EndTime.AsTime(),
+	})
 	return &proto.DiagnosticsResponse{
 		Id:                  uint32(version.ID),
 		Implementation:      version.Implementation,
 		Version:             version.Version,
 		CompactionThreshold: uint32(version.CompactionThreshold),
+		Metrics:             convertMetricsToProto(version.Metrics),
 	}, nil
+}
+
+func convertMetricsToProto(metrics []util.MetricsSample) []*proto.MetricsSample {
+	var protoMetrics []*proto.MetricsSample
+	for _, m := range metrics {
+		protoMetrics = append(protoMetrics, &proto.MetricsSample{
+			Timestamp: timestamppb.New(m.Timestamp),
+			Cpu:       m.CPU,
+			MemoryMB:  m.MemoryMB,
+		})
+	}
+	return protoMetrics
 }
 
 func convertPeerToProto(peer *util.Peer) *proto.Peer {

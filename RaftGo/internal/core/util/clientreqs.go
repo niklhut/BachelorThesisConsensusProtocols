@@ -1,5 +1,7 @@
 package util
 
+import "time"
+
 // Client to Leader, used for retrieving a value by key
 type GetRequest struct {
 	// Key to retrieve
@@ -51,6 +53,14 @@ type ServerTermResponse struct {
 	Term int `json:"term"`
 }
 
+type DiagnosticsRequest struct {
+	// The start time for the metrics request
+	Start time.Time `json:"start"`
+
+	// The end time for the metrics request
+	End time.Time `json:"end"`
+}
+
 type DiagnosticsResponse struct {
 	// The ID of the server
 	ID int `json:"id"`
@@ -63,4 +73,7 @@ type DiagnosticsResponse struct {
 
 	// The compaction threshold of the server
 	CompactionThreshold int `json:"compactionThreshold"`
+
+	// The metrics collected by the server
+	Metrics []MetricsSample `json:"metrics"`
 }

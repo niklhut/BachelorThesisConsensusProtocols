@@ -148,8 +148,8 @@ final class GRPCClientTransport: RaftClientTransport {
     ) async throws -> DiagnosticsResponse {
         try await runWithClientRetry(peer: peer, isolation: isolation) { client in
             let response = try await client.getDiagnostics(.with { grpcRequest in
-                grpcRequest.startTime = request.start.toGRPC()
-                grpcRequest.endTime = request.end.toGRPC()
+                grpcRequest.startTime = Google_Protobuf_Timestamp(date: request.start)
+                grpcRequest.endTime = Google_Protobuf_Timestamp(date: request.end)
             })
 
             return DiagnosticsResponse(

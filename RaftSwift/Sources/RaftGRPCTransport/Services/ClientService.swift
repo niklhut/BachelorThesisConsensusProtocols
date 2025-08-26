@@ -67,8 +67,8 @@ struct ClientService: Raft_RaftClient.SimpleServiceProtocol {
 
     func getDiagnostics(request: Raft_DiagnosticsRequest, context: ServerContext) async throws -> Raft_DiagnosticsResponse {
         let response: DiagnosticsResponse = await node.getDiagnostics(request: DiagnosticsRequest(
-            start: Date.fromGRPC(request.startTime),
-            end: Date.fromGRPC(request.endTime),
+            start: request.startTime.date,
+            end: request.endTime.date,
         ))
 
         return .with { grpcResponse in

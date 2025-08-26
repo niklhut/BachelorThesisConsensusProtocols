@@ -1,10 +1,11 @@
 import Foundation
 import RaftCore
+import SwiftProtobuf
 
 extension MetricsSample {
     func toGRPC() -> Raft_MetricsSample {
         .with { entry in
-            entry.timestamp = timestamp.toGRPC()
+            entry.timestamp = Google_Protobuf_Timestamp(date: timestamp)
             entry.cpu = cpu
             entry.memoryMb = memoryMB
         }
@@ -12,7 +13,7 @@ extension MetricsSample {
 
     static func fromGRPC(_ sample: Raft_MetricsSample) -> MetricsSample {
         MetricsSample(
-            timestamp: Date.fromGRPC(sample.timestamp),
+            timestamp: sample.timestamp.date,
             cpu: sample.cpu,
             memoryMB: sample.memoryMb,
         )

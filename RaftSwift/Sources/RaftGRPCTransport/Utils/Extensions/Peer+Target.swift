@@ -14,13 +14,13 @@ extension Peer {
     var target: any ResolvableTarget {
         if addressIsIPAdress {
             .ipv4(
-                host: address,
-                port: Int(port)
+                address: address,
+                port: Int(port),
             )
         } else {
             .dns(
                 host: address,
-                port: Int(port)
+                port: Int(port),
             )
         }
     }

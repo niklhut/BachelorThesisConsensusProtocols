@@ -1,7 +1,7 @@
 # ================================
 # Build image
 # ================================
-FROM swift:6.1-noble AS build
+FROM swift:6.1-bookworm AS build
 
 # Install OS updates
 RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
@@ -9,7 +9,8 @@ RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
     && apt-get -q dist-upgrade -y \
     && apt-get -q install -y \
        libjemalloc-dev \
-       protobuf-compiler
+       protobuf-compiler \
+       unzip
 
 # Set up a build area
 WORKDIR /build
@@ -31,7 +32,8 @@ RUN cp ./Sources/RaftGRPCTransport/Protos/grpc-swift-proto-generator-config.dock
 # N.B.: The static version of jemalloc is incompatible with the static Swift runtime.
 RUN swift build -c release \
                 --static-swift-stdlib \
-                -Xlinker -ljemalloc
+                -Xlinker -ljemalloc \
+                -Xlinker -s
 
 # Switch to the staging area
 WORKDIR /staging
@@ -39,16 +41,13 @@ WORKDIR /staging
 # Copy main executable to staging area
 RUN cp "$(swift build --package-path /build -c release --show-bin-path)/Raft" ./
 
-# Copy static swift backtracer binary to staging area
-RUN cp "/usr/libexec/swift/linux/swift-backtrace-static" ./
-
 # Copy resources bundled by SPM to staging area
 RUN find -L "$(swift build --package-path /build -c release --show-bin-path)/" -regex '.*\.resources$' -exec cp -Ra {} ./ \;
 
 # ================================
 # Run image
 # ================================
-FROM ubuntu:noble AS run
+FROM debian:bookworm-slim AS run
 
 # Make sure all system packages are up to date, and install only essential packages.
 RUN export DEBIAN_FRONTEND=noninteractive DEBCONF_NONINTERACTIVE_SEEN=true \
@@ -71,9 +70,6 @@ WORKDIR /app
 
 # Copy built executable and any staged resources from builder
 COPY --from=build --chown=raft:raft /staging /app
-
-# Provide configuration needed by the built-in crash reporter and some sensible default behaviors.
-ENV SWIFT_BACKTRACE=enable=yes,sanitize=yes,threads=all,images=all,interactive=no,swift-backtrace=./swift-backtrace-static
 
 # Ensure all further commands run as the raft user
 USER raft:raft

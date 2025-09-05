@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 
 # Node mapping (hostname to IP)
 SERVERS = {
-    "zs03.lab.dm.informatik.tu-darmstadt.de": "10.10.2.183",
+    # "zs03.lab.dm.informatik.tu-darmstadt.de": "10.10.2.183",
     "zs04.lab.dm.informatik.tu-darmstadt.de": "10.10.2.184",
     "zs05.lab.dm.informatik.tu-darmstadt.de": "10.10.2.185",
     "zs07.lab.dm.informatik.tu-darmstadt.de": "10.10.2.187",
@@ -26,14 +26,18 @@ SERVERS = {
 SERVICE_PREFIX = "nhuthmann_"
 
 class RaftSwarmTestRunner:
-    def __init__(self, test_suite_name=None, timeout=180, retries=1, repetitions=3):
+    def __init__(self, test_suite_name=None, collect_metrics=True, timeout=180, retries=1, repetitions=3, cpu_limit=None, memory_limit=None):
         self.test_suite_name = test_suite_name or f"Raft Swarm Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         self.total_tests = 0
         self.results = []
         self.interrupted = False
+        self.collect_metrics = collect_metrics
         self.timeout = timeout
         self.retries = retries
         self.repetitions = repetitions
+        # Optional resource limits for all created services (None => unlimited)
+        self.cpu_limit = cpu_limit
+        self.memory_limit = memory_limit
 
         os.makedirs("test-output", exist_ok=True)
         logging.basicConfig(
@@ -151,6 +155,15 @@ class RaftSwarmTestRunner:
                 flags += " --use-distributed-actor-system"
             if params.get('manual_locks'):
                 flags += " --use-manual-lock"
+            if self.collect_metrics:
+                flags += " --collect-metrics"
+
+            # Compose resource limit flags if set
+            resource_flags = ""
+            if self.cpu_limit:
+                resource_flags += f" --limit-cpu {self.cpu_limit}"
+            if self.memory_limit:
+                resource_flags += f" --limit-memory {self.memory_limit}"
 
             peers_config = ",".join([
                 f"{idx+1}:{SERVERS[peer_host]}:{port}"
@@ -163,6 +176,7 @@ class RaftSwarmTestRunner:
                 f"--name {svc_name} "
                 f"--network host --restart-condition none "
                 f"--constraint 'node.hostname=={hostname}' "
+                f"{resource_flags} "
                 f"{params['image']} peer --id {node_id} --port {port} "
                 f"--address {SERVERS[hostname]} --peers '{peers_config}' "
                 f"--compaction-threshold {params['compaction_threshold']}{flags}"
@@ -346,18 +360,24 @@ def main():
     parser.add_argument("--peer-counts", nargs="+", type=int, default=[3])
     parser.add_argument("--operation-counts", nargs="+", type=int, default=[10000])
     parser.add_argument("--concurrency-levels", nargs="+", type=int, default=[2])
+    parser.add_argument("--collect-metrics", type=bool, default=True, help="Whether to collect metrics on all peer nodes (default: True)")
     parser.add_argument("--timeout", type=int, default=180)
     parser.add_argument("--retries", type=int, default=3)
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--test-suite", type=str, help="Name of the test suite (overrides default timestamped name)")
     parser.add_argument("--resume", type=int, default=1, help="Resume from the given test number")
+    parser.add_argument("--cpu-limit", type=str, default=None, help="CPU limit per container for Docker services (e.g., 0.5, 1, 2). Default: unlimited")
+    parser.add_argument("--memory-limit", type=str, default=None, help="Memory limit per container for Docker services (e.g., 512M, 2G). Default: unlimited")
     args = parser.parse_args()
 
     runner = RaftSwarmTestRunner(
         test_suite_name=args.test_suite,
         timeout=args.timeout,
+        collect_metrics=args.collect_metrics,
         retries=args.retries,
-        repetitions=args.repetitions
+        repetitions=args.repetitions,
+        cpu_limit=args.cpu_limit,
+        memory_limit=args.memory_limit,
     )
     runner.run_tests(
         images=args.images,

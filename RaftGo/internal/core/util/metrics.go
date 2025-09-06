@@ -113,8 +113,8 @@ func (mc *MetricsCollector) readCPUUsage() uint64 {
 		return 0
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
+	lines := strings.SplitSeq(string(data), "\n")
+	for line := range lines {
 		if strings.HasPrefix(line, "usage_usec") {
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {

@@ -9,6 +9,7 @@ from datetime import datetime
 import logging
 import signal
 import random
+import json
 
 from dotenv import load_dotenv
 
@@ -26,7 +27,7 @@ SERVERS = {
 SERVICE_PREFIX = "nhuthmann_"
 
 class RaftSwarmTestRunner:
-    def __init__(self, test_suite_name=None, collect_metrics=True, timeout=180, retries=1, repetitions=3, cpu_limit=None, memory_limit=None):
+    def __init__(self, test_suite_name=None, collect_metrics=True, timeout=180, retries=1, repetitions=3, cpu_limit=None, memory_limit=None, persistence="file"):
         self.test_suite_name = test_suite_name or f"Raft Swarm Test Suite {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
         self.total_tests = 0
         self.results = []
@@ -38,6 +39,8 @@ class RaftSwarmTestRunner:
         # Optional resource limits for all created services (None => unlimited)
         self.cpu_limit = cpu_limit
         self.memory_limit = memory_limit
+        # Node persistence mode (passed to peer via --persistence); default to 'file'
+        self.persistence = persistence
 
         os.makedirs("test-output", exist_ok=True)
         logging.basicConfig(
@@ -81,10 +84,21 @@ class RaftSwarmTestRunner:
         except Exception as e:
             self.logger.warning(f"Error removing services: {e}")
 
-    def generate_test_combinations(self, images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels):
+    def generate_test_combinations(self, images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, cpu_limits=None, memory_limits=None, instance_size_pairs=None, persistences=None, scenario_name=None):
         combinations = []
-        for image, threshold, peers, operations, concurrency in itertools.product(
-            images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels
+        # Prepare instance size pairs
+        if instance_size_pairs and len(instance_size_pairs) > 0:
+            pairs = instance_size_pairs
+        else:
+            cpu_limits = cpu_limits if cpu_limits not in (None, []) else [None]
+            memory_limits = memory_limits if memory_limits not in (None, []) else [None]
+            pairs = list(itertools.product(cpu_limits, memory_limits))
+
+        # Persistence axis; default to runner's persistence
+        pers_list = persistences if persistences not in (None, []) else [self.persistence]
+
+        for image, threshold, peers, operations, concurrency, (cpu_l, mem_l), persistence in itertools.product(
+            images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, pairs, pers_list
         ):
             if peers > len(SERVERS):
                 self.logger.warning(f"Skipping test with {peers} peers — not enough servers.")
@@ -99,6 +113,10 @@ class RaftSwarmTestRunner:
                         'peers': peers,
                         'operations': operations,
                         'concurrency': concurrency,
+                        'cpu_limit': cpu_l,
+                        'memory_limit': mem_l,
+                        'persistence': persistence,
+                        'scenario': scenario_name,
                         'distributed_actor_system': False,
                         'manual_locks': False
                     },
@@ -108,6 +126,10 @@ class RaftSwarmTestRunner:
                         'peers': peers,
                         'operations': operations,
                         'concurrency': concurrency,
+                        'cpu_limit': cpu_l,
+                        'memory_limit': mem_l,
+                        'persistence': persistence,
+                        'scenario': scenario_name,
                         'distributed_actor_system': True,
                         'manual_locks': False
                     },
@@ -117,6 +139,10 @@ class RaftSwarmTestRunner:
                         'peers': peers,
                         'operations': operations,
                         'concurrency': concurrency,
+                        'cpu_limit': cpu_l,
+                        'memory_limit': mem_l,
+                        'persistence': persistence,
+                        'scenario': scenario_name,
                         'distributed_actor_system': False,
                         'manual_locks': True
                     },
@@ -126,6 +152,10 @@ class RaftSwarmTestRunner:
                         'peers': peers,
                         'operations': operations,
                         'concurrency': concurrency,
+                        'cpu_limit': cpu_l,
+                        'memory_limit': mem_l,
+                        'persistence': persistence,
+                        'scenario': scenario_name,
                         'distributed_actor_system': True,
                         'manual_locks': True
                     }
@@ -138,6 +168,10 @@ class RaftSwarmTestRunner:
                     'peers': peers,
                     'operations': operations,
                     'concurrency': concurrency,
+                    'cpu_limit': cpu_l,
+                    'memory_limit': mem_l,
+                    'persistence': persistence,
+                    'scenario': scenario_name,
                     'distributed_actor_system': False,
                     'manual_locks': False
                 })
@@ -157,13 +191,21 @@ class RaftSwarmTestRunner:
                 flags += " --use-manual-lock"
             if self.collect_metrics:
                 flags += " --collect-metrics"
+            # Persistence (per-combo overrides runner default)
+            chosen_persistence = params.get('persistence', self.persistence) or self.persistence
+            flags += f" --persistence {chosen_persistence}"
+            # Persistence (per-combo overrides runner default)
+            chosen_persistence = params.get('persistence', self.persistence) or self.persistence
+            flags += f" --persistence {chosen_persistence}"
 
-            # Compose resource limit flags if set
+            # Compose resource limit flags if set (prefer per-combination over runner defaults)
+            chosen_cpu = params.get('cpu_limit', self.cpu_limit)
+            chosen_mem = params.get('memory_limit', self.memory_limit)
             resource_flags = ""
-            if self.cpu_limit:
-                resource_flags += f" --limit-cpu {self.cpu_limit}"
-            if self.memory_limit:
-                resource_flags += f" --limit-memory {self.memory_limit}"
+            if chosen_cpu:
+                resource_flags += f" --limit-cpu {chosen_cpu}"
+            if chosen_mem:
+                resource_flags += f" --limit-memory {chosen_mem}"
 
             peers_config = ",".join([
                 f"{idx+1}:{SERVERS[peer_host]}:{port}"
@@ -299,8 +341,70 @@ class RaftSwarmTestRunner:
             "repetitions": repetition_results
         }
 
-    def run_tests(self, images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, client_image, resume_from=1):
-        combinations = self.generate_test_combinations(images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels)
+    def run_tests(self, images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, client_image, resume_from=1, cpu_limits=None, memory_limits=None, persistences=None, scenario_config=None):
+        # Build combinations either from scenarios or from direct axes
+        combinations = []
+        if scenario_config:
+            try:
+                with open(scenario_config, 'r') as f:
+                    scenarios = json.load(f)
+            except Exception as e:
+                raise RuntimeError(f"Failed to read scenario config '{scenario_config}': {e}")
+
+            def as_list(v):
+                if v is None:
+                    return None
+                if isinstance(v, list):
+                    return v
+                return [v]
+
+            def parse_instance_sizes(v):
+                if v is None:
+                    return None
+                items = v if isinstance(v, list) else [v]
+                pairs = []
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    cpu = item.get('cpu_limits')
+                    mem = item.get('memory_limits')
+                    pairs.append((cpu, mem))
+                return pairs if pairs else None
+
+            for sc in scenarios:
+                name = sc.get('name')
+                vary = sc.get('vary', {})
+                fixed = sc.get('fixed', {})
+
+                sc_compaction = as_list(vary.get('compaction_thresholds')) or as_list(fixed.get('compaction_thresholds')) or compaction_thresholds
+                sc_peers = as_list(vary.get('peer_counts')) or as_list(fixed.get('peer_counts')) or peer_counts
+                sc_ops = as_list(vary.get('operation_counts')) or as_list(fixed.get('operation_counts')) or operation_counts
+                sc_conc = as_list(vary.get('concurrency_levels')) or as_list(fixed.get('concurrency_levels')) or concurrency_levels
+                sc_cpu = as_list(vary.get('cpu_limits')) or as_list(fixed.get('cpu_limits')) or cpu_limits
+                sc_mem = as_list(vary.get('memory_limits')) or as_list(fixed.get('memory_limits')) or memory_limits
+                sc_pairs = parse_instance_sizes(vary.get('instance_sizes')) or parse_instance_sizes(fixed.get('instance_sizes'))
+
+                # Persistences: support list 'persistences' or single 'persistence'
+                var_pers = vary.get('persistences') or vary.get('persistence')
+                fix_pers = fixed.get('persistences') or fixed.get('persistence')
+                sc_pers = as_list(var_pers) or as_list(fix_pers) or persistences
+
+                combinations.extend(self.generate_test_combinations(
+                    images=images,
+                    compaction_thresholds=sc_compaction,
+                    peer_counts=sc_peers,
+                    operation_counts=sc_ops,
+                    concurrency_levels=sc_conc,
+                    cpu_limits=sc_cpu,
+                    memory_limits=sc_mem,
+                    instance_size_pairs=sc_pairs,
+                    persistences=sc_pers,
+                    scenario_name=name
+                ))
+        else:
+            combinations = self.generate_test_combinations(
+                images, compaction_thresholds, peer_counts, operation_counts, concurrency_levels, cpu_limits, memory_limits, None, persistences
+            )
         self.total_tests = len(combinations)
 
         for idx, params in enumerate(combinations, start=1):
@@ -366,8 +470,17 @@ def main():
     parser.add_argument("--repetitions", type=int, default=3)
     parser.add_argument("--test-suite", type=str, help="Name of the test suite (overrides default timestamped name)")
     parser.add_argument("--resume", type=int, default=1, help="Resume from the given test number")
-    parser.add_argument("--cpu-limit", type=str, default=None, help="CPU limit per container for Docker services (e.g., 0.5, 1, 2). Default: unlimited")
-    parser.add_argument("--memory-limit", type=str, default=None, help="Memory limit per container for Docker services (e.g., 512M, 2G). Default: unlimited")
+    # Single-value (backward compat)
+    parser.add_argument("--cpu-limit", type=str, default=None, help="[Deprecated] CPU limit per node container (e.g., 0.5, 1, 2). Use --cpu-limits for multiple.")
+    parser.add_argument("--memory-limit", type=str, default=None, help="[Deprecated] Memory limit per node container (e.g., 512M, 2G). Use --memory-limits for multiple.")
+    # Multi-value axes
+    parser.add_argument("--cpu-limits", nargs="+", type=str, default=None, help="CPU limits per node (space-separated, e.g., 0.5 1 2). Default: unlimited only")
+    parser.add_argument("--memory-limits", nargs="+", type=str, default=None, help="Memory limits per node (space-separated, e.g., 512M 1G 2G). Default: unlimited only")
+    # Persistence
+    parser.add_argument("--persistence", type=str, default="file", help="Node persistence mode passed to peers via --persistence (e.g., file, memory). Default: file")
+    parser.add_argument("--persistences", nargs="+", type=str, default=None, help="Persistence modes to test for nodes (space-separated). Overrides --persistence when provided.")
+    # Scenario config
+    parser.add_argument("--scenario-config", type=str, default=None, help="Path to JSON file with scenarios defining fixed/vary axes")
     args = parser.parse_args()
 
     runner = RaftSwarmTestRunner(
@@ -378,7 +491,12 @@ def main():
         repetitions=args.repetitions,
         cpu_limit=args.cpu_limit,
         memory_limit=args.memory_limit,
+        persistence=args.persistence,
     )
+    # Build axes for limits: multi-value takes precedence over single-value
+    cpu_limits = args.cpu_limits if args.cpu_limits else ([args.cpu_limit] if args.cpu_limit else None)
+    memory_limits = args.memory_limits if args.memory_limits else ([args.memory_limit] if args.memory_limit else None)
+    persistences = args.persistences if args.persistences else ([args.persistence] if args.persistence else None)
     runner.run_tests(
         images=args.images,
         compaction_thresholds=args.compaction_thresholds,
@@ -386,7 +504,11 @@ def main():
         operation_counts=args.operation_counts,
         concurrency_levels=args.concurrency_levels,
         client_image=args.client_image,
-        resume_from=args.resume
+        resume_from=args.resume,
+        cpu_limits=cpu_limits,
+        memory_limits=memory_limits,
+        persistences=persistences,
+        scenario_config=args.scenario_config
     )
     runner.generate_report()
 

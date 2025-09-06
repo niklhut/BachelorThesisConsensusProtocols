@@ -1,0 +1,84 @@
+[
+  {
+    "name": "vary-concurrency-fixed-compaction",
+    "fixed": {
+      "operation_counts": [50000],
+      "compaction_thresholds": [1000],
+      "peer_counts": [3, 5],
+      "instance_sizes": [
+        {
+          "cpu_limits": "1",
+          "memory_limits": "0.5G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "1G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "2G"
+        },
+        {
+          "cpu_limits": "1",
+          "memory_limits": "2G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "4G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "8G"
+        },
+        {
+          "cpu_limits": "0.2",
+          "memory_limits": "0.6G"
+        }
+      ]
+    },
+    "vary": {
+      "concurrency_levels": [5, 10, 20, 40]
+    }
+  },
+  {
+    "name": "vary-compaction-fixed-load",
+    "fixed": {
+      "operation_counts": [50000],
+      "concurrency_levels": [10],
+      "peer_counts": [3, 5],
+      "instance_sizes": [
+        {
+          "cpu_limits": "1",
+          "memory_limits": "0.5G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "1G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "2G"
+        },
+        {
+          "cpu_limits": "1",
+          "memory_limits": "2G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "4G"
+        },
+        {
+          "cpu_limits": "2",
+          "memory_limits": "8G"
+        },
+        {
+          "cpu_limits": "0.2",
+          "memory_limits": "0.6G"
+        }
+      ]
+    },
+    "vary": {
+      "compaction_thresholds": [500, 1000, 2000, 5000]
+    }
+  }
+]

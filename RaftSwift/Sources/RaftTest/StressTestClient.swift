@@ -24,12 +24,20 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// The test suite name.
     var testSuite: String?
 
+    /// The number of CPU cores available to each node.
+    var cpuCores: Double?
+
+    /// The amount of memory (in GB) available to each node.
+    var memory: Double?
+
     /// Initializes a new instance of the StressTestClient class.
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient<Transport>, testSuite: String?) {
+    public init(client: RaftClient<Transport>, testSuite: String?, cpuCores: Double?, memory: Double?) {
         self.client = client
         self.testSuite = testSuite
+        self.cpuCores = cpuCores
+        self.memory = memory
     }
 
     /// Runs the stress test client.
@@ -253,7 +261,11 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             totalDuration: result.totalDuration,
             concurrency: result.concurrency,
             compactionThreshold: implementationVersion.compactionThreshold,
-            machine: machineName,
+            machine: RaftStressTestPayload.RaftMachineInfo(
+                name: machineName,
+                cpu: cpuCores,
+                memory: memory,
+            ),
             numberOfPeers: result.numberOfPeers,
             peerVersion: RaftStressTestPayload.RaftImplementationVersion(
                 implementation: implementationVersion.implementation,

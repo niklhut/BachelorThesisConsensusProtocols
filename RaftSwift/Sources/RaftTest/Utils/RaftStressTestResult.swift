@@ -33,7 +33,7 @@ struct RaftStressTestPayload: Codable {
     let totalDuration: Double
     let concurrency: Int
     let compactionThreshold: Int
-    let machine: String
+    let machine: RaftMachineInfo
     let numberOfPeers: Int
     let peerVersion: RaftImplementationVersion
     let testSuite: String?
@@ -57,5 +57,13 @@ struct RaftStressTestPayload: Codable {
     struct RaftImplementationVersion: Codable {
         let implementation: String
         let version: String
+    }
+
+    struct RaftMachineInfo: Codable {
+        let name: String
+        /// Number of CPU cores
+        let cpu: Double?
+        /// Amount of memory in GB
+        let memory: Double?
     }
 }

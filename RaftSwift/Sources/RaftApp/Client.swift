@@ -42,6 +42,12 @@ final class Client: AsyncParsableCommand {
     @Flag(help: "Skip sanity check after stress test")
     var skipSanityCheck: Bool = true
 
+    @Option(help: "The number of CPU cores available to each node")
+    var cpuCores: Double? = nil
+
+    @Option(help: "The amount of memory (in GB) available to each node")
+    var memory: Double? = nil
+
     // MARK: - Transport
 
     @Flag(help: "Use Distributed Actor System for transport")
@@ -61,7 +67,7 @@ final class Client: AsyncParsableCommand {
         } else if tests {
             try await client.runFunctionalityTests()
         } else if stressTest {
-            try await client.runStressTest(operations: operations, concurrency: concurrency, testSuiteName: testSuite, skipSanityCheck: skipSanityCheck)
+            try await client.runStressTest(operations: operations, concurrency: concurrency, testSuiteName: testSuite, cpuCores: cpuCores, memory: memory, skipSanityCheck: skipSanityCheck)
         }
     }
 }

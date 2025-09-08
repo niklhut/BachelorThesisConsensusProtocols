@@ -81,11 +81,25 @@ nohup python3 test_swarm_distributed.py \
   --cpu-limit 1 \
   --test-suite "Basic Test with Metrics 1 CPU" &
 
-python3 test_swarm_distributed.py \
-  --images "registry.niklabs.de/niklhut/raftswift:1.4.0" \
+nohup python3 test_swarm_distributed.py \
+  --images "registry.niklabs.de/niklhut/raftswift:1.4.1" \
   "registry.niklabs.de/niklhut/raftkotlin:1.4.0" \
-  "registry.niklabs.de/niklhut/raftgo:1.4.0" \
-  --client-image "registry.niklabs.de/niklhut/raftswift:1.4.0" \
+  "registry.niklabs.de/niklhut/raftgo:1.4.1" \
+  --client-image "registry.niklabs.de/niklhut/raftswift:1.4.1" \
   --scenario-config scenarios.json \
   --timeout 250 \
-  --test-suite "Basic Test with Metrics 1 CPU" &
+  --test-suite "Different Instance Sizes" &
+
+docker service create \
+  --with-registry-auth \
+  --name nh_raft_client \
+  --network host \
+  --restart-condition none \
+  --constraint 'node.hostname==zs07.lab.dm.informatik.tu-darmstadt.de' \
+  --mount type=bind,source=/var/run/docker.sock,target=/var/run/docker.sock \
+  --mount type=bind,source=/usr/bin/docker,target=/usr/bin/docker \
+  --mount type=bind,source=$(pwd)/scenarios.json,target=/scenarios.json \
+  --mount type=bind,source=$(pwd)/.docker/config.json,target=/app/.docker/config.json \
+  --mount type=bind,source=$(pwd)/swift-test-output,target=/app/test-output \
+  registry.niklabs.de/niklhut/raftswift:1.4.5 \
+  test-manager --scenario-config /scenarios.json

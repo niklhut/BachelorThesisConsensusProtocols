@@ -133,32 +133,32 @@ class RaftSwarmTestRunner:
                         'distributed_actor_system': True,
                         'manual_locks': False
                     },
-                    {
-                        'image': image,
-                        'compaction_threshold': threshold,
-                        'peers': peers,
-                        'operations': operations,
-                        'concurrency': concurrency,
-                        'cpu_limit': cpu_l,
-                        'memory_limit': mem_l,
-                        'persistence': persistence,
-                        'scenario': scenario_name,
-                        'distributed_actor_system': False,
-                        'manual_locks': True
-                    },
-                    {
-                        'image': image,
-                        'compaction_threshold': threshold,
-                        'peers': peers,
-                        'operations': operations,
-                        'concurrency': concurrency,
-                        'cpu_limit': cpu_l,
-                        'memory_limit': mem_l,
-                        'persistence': persistence,
-                        'scenario': scenario_name,
-                        'distributed_actor_system': True,
-                        'manual_locks': True
-                    }
+                    # {
+                    #     'image': image,
+                    #     'compaction_threshold': threshold,
+                    #     'peers': peers,
+                    #     'operations': operations,
+                    #     'concurrency': concurrency,
+                    #     'cpu_limit': cpu_l,
+                    #     'memory_limit': mem_l,
+                    #     'persistence': persistence,
+                    #     'scenario': scenario_name,
+                    #     'distributed_actor_system': False,
+                    #     'manual_locks': True
+                    # },
+                    # {
+                    #     'image': image,
+                    #     'compaction_threshold': threshold,
+                    #     'peers': peers,
+                    #     'operations': operations,
+                    #     'concurrency': concurrency,
+                    #     'cpu_limit': cpu_l,
+                    #     'memory_limit': mem_l,
+                    #     'persistence': persistence,
+                    #     'scenario': scenario_name,
+                    #     'distributed_actor_system': True,
+                    #     'manual_locks': True
+                    # }
                 ])
             else:
                 # Non-swift images get just one combination, no flags
@@ -191,9 +191,6 @@ class RaftSwarmTestRunner:
                 flags += " --use-manual-lock"
             if self.collect_metrics:
                 flags += " --collect-metrics"
-            # Persistence (per-combo overrides runner default)
-            chosen_persistence = params.get('persistence', self.persistence) or self.persistence
-            flags += f" --persistence {chosen_persistence}"
             # Persistence (per-combo overrides runner default)
             chosen_persistence = params.get('persistence', self.persistence) or self.persistence
             flags += f" --persistence {chosen_persistence}"
@@ -282,6 +279,52 @@ class RaftSwarmTestRunner:
                         for idx, host in enumerate(node_servers)
                     ])
 
+                    # Pass cpu and memory limits to the client as floating-point values.
+                    # CPU: parse as float. Memory: convert common units to GB as float.
+                    client_extra_flags = ""
+                    chosen_cpu = params.get('cpu_limit', self.cpu_limit)
+                    if chosen_cpu is not None:
+                        try:
+                            cpu_val = float(chosen_cpu)
+                            client_extra_flags += f" --cpu-cores {cpu_val}"
+                        except Exception:
+                            # ignore malformed cpu values
+                            pass
+
+                    chosen_mem = params.get('memory_limit', self.memory_limit)
+                    if chosen_mem is not None:
+                        try:
+                            # Normalize memory to GB (float). Support suffixes: G, M, K (case-insensitive).
+                            mem = chosen_mem
+                            if isinstance(mem, (int, float)):
+                                mem_gb = float(mem)
+                            else:
+                                s = str(mem).strip()
+                                # direct float (assume GB)
+                                try:
+                                    mem_gb = float(s)
+                                except Exception:
+                                    s_lower = s.lower()
+                                    if s_lower.endswith('gb') or s_lower.endswith('g'):
+                                        mem_gb = float(s_lower.rstrip('gb').rstrip('g'))
+                                    elif s_lower.endswith('mb') or s_lower.endswith('m'):
+                                        mem_gb = float(s_lower.rstrip('mb').rstrip('m')) / 1024.0
+                                    elif s_lower.endswith('kb') or s_lower.endswith('k'):
+                                        mem_gb = float(s_lower.rstrip('kb').rstrip('k')) / (1024.0 * 1024.0)
+                                    else:
+                                        # fallback: try to interpret as bytes
+                                        try:
+                                            mem_gb = float(int(s)) / (1024.0 ** 3)
+                                        except Exception:
+                                            mem_gb = None
+
+                            if mem_gb is not None:
+                                # ensure a floating-point literal (two decimals)
+                                client_extra_flags += f" --memory {mem_gb:.2f}"
+                        except Exception:
+                            # ignore malformed memory values
+                            pass
+
                     cmd = (
                         f"docker service create --with-registry-auth "
                         f"--name {client_svc} "
@@ -290,7 +333,7 @@ class RaftSwarmTestRunner:
                         f"{env_flags} "
                         f"{client_image} client --peers {peers_config} --stress-test "
                         f"--operations {params['operations']} --concurrency {params['concurrency']} "
-                        f"--test-suite '{self.test_suite_name}'{flags}"
+                        f"--test-suite '{self.test_suite_name}'{flags}{client_extra_flags}"
                     )
                     self._run_cmd(cmd, check=False, background=True)
 

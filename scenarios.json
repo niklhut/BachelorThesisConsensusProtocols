@@ -25,14 +25,6 @@
         {
           "cpu_limits": "2",
           "memory_limits": "4G"
-        },
-        {
-          "cpu_limits": "2",
-          "memory_limits": "8G"
-        },
-        {
-          "cpu_limits": "0.2",
-          "memory_limits": "0.6G"
         }
       ]
     },
@@ -66,14 +58,6 @@
         {
           "cpu_limits": "2",
           "memory_limits": "4G"
-        },
-        {
-          "cpu_limits": "2",
-          "memory_limits": "8G"
-        },
-        {
-          "cpu_limits": "0.2",
-          "memory_limits": "0.6G"
         }
       ]
     },

@@ -1,3 +1,4 @@
+import Foundation
 import RaftCore
 
 /// Protocol for a Raft client application
@@ -13,7 +14,15 @@ public protocol RaftTestApplication: Sendable {
 
     /// Runs the stress test
     /// - Throws: Any errors thrown by the client
-    func runStressTest(operations: Int, concurrency: Int, testSuiteName: String, cpuCores: Double?, memory: Double?, skipSanityCheck: Bool) async throws
+    func runStressTest(
+        operations: Int,
+        concurrency: Int,
+        testSuiteName: String,
+        timeout: TimeInterval,
+        cpuCores: Double?,
+        memory: Double?,
+        skipSanityCheck: Bool,
+    ) async throws
 
     /// Runs the functionality tests
     /// - Throws: Any errors thrown by the client or test suite

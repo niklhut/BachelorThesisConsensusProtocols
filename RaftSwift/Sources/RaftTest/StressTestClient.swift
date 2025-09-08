@@ -44,7 +44,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameters:
     ///   - operations: The number of operations to perform.
     ///   - concurrency: The number of concurrent operations to perform.
-    public func run(operations: Int = 10000, concurrency: Int = 10, skipSanityCheck: Bool = false) async throws {
+    public func run(operations: Int, concurrency: Int, timeout: TimeInterval, skipSanityCheck: Bool) async throws {
         let startTime = Date()
 
         let progressBar = terminal.progressBar(title: "Stress Test")
@@ -65,7 +65,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             // Initialize with 'concurrency' number of tasks
             for i in 0 ..< min(concurrency, operations) {
                 group.addTask {
-                    await self.putEntry(testValues[i])
+                    if Task.isCancelled { return (false, 0) }
+                    return await self.putEntry(testValues[i])
                 }
             }
 
@@ -76,6 +77,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             var totalLatency = 0.0
 
             for await result in group {
+                if Task.isCancelled { break }
                 completed += 1
                 progressBar.activity.currentProgress = Double(completed) / Double(operations)
 
@@ -87,16 +89,22 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                 }
 
                 // Add a new task if there are operations remaining
-                if nextOperationIndex < operations {
+                // let stopRequested = await StressTestRuntime.shared.stopRequested
+                let timeoutReached = startTime.timeIntervalSinceNow <= -timeout
+                if Task.isCancelled || timeoutReached {
+                    logger.info("Timeout reached or cancelled, not adding new tasks")
+                } else if nextOperationIndex < operations {
                     let nextIndex = nextOperationIndex
                     nextOperationIndex += 1
 
                     group.addTask {
-                        await self.putEntry(testValues[nextIndex])
+                        if Task.isCancelled { return (false, 0) }
+                        return await self.putEntry(testValues[nextIndex])
                     }
                 }
 
-                if completed == operations {
+                if completed == operations || timeoutReached || Task.isCancelled {
+                    group.cancelAll()
                     break
                 }
             }
@@ -106,13 +114,13 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             progressBar.succeed()
 
             let testDuration = Date().timeIntervalSince(startTime)
-            let averageLatency = successful > 0 ? totalLatency / Double(operations) : 0
-            let throughput = testDuration > 0 ? Double(operations) / testDuration : 0
+            let averageLatency = successful > 0 ? totalLatency / Double(successful) : 0
+            let throughput = testDuration > 0 ? Double(completed) / testDuration : 0
 
             let result = RaftStressTestResult(
                 start: startTime,
                 end: Date(),
-                messagesSent: operations,
+                messagesSent: completed,
                 successfulMessages: successful,
                 averageLatency: averageLatency,
                 averageThroughput: throughput,
@@ -122,12 +130,16 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             )
 
             logger.info(.init(stringLiteral: result.description))
-
             return result
         }
 
         #if !DEBUG
-            try await sendStressTestData(result)
+            // If stop was requested and allowed to send partial, still send analytics
+            if await StressTestRuntime.shared.allowPartialOnStop {
+                try await sendStressTestData(result)
+            } else {
+                try await sendStressTestData(result)
+            }
         #endif
 
         if !skipSanityCheck {
@@ -147,11 +159,13 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         _ value: PutRequest,
         startTime: Date = Date(),
     ) async -> (success: Bool, latency: Double) {
+        if Task.isCancelled { return (false, 0) }
         guard let currentLeader = leader else {
             return (false, 0)
         }
 
         do {
+            if Task.isCancelled { return (false, 0) }
             let result = try await client.put(request: value, to: currentLeader)
             let latency = Date().timeIntervalSince(startTime) * 1000
 
@@ -167,6 +181,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                 return (result.success, latency)
             }
         } catch {
+            if Task.isCancelled { return (false, 0) }
             return await putEntry(value)
         }
     }
@@ -247,11 +262,11 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         }
         let metrics = RaftStressTestPayload.RaftStressTestMetrics(nodes: nodes)
 
-        let baseUrl = ProcessInfo.processInfo.environment["STRESS_TEST_BASE_URL"] ?? "http://localhost:3000"
+        let baseUrl = await StressTestRuntime.shared.baseUrl ?? ProcessInfo.processInfo.environment["STRESS_TEST_BASE_URL"] ?? "http://localhost:3000"
         logger.info("Sending stress test data to \(baseUrl)")
         guard let url = URL(string: baseUrl + "/api/stress-test") else { return }
 
-        let machineName = ProcessInfo.processInfo.environment["STRESS_TEST_MACHINE_NAME"] ?? "Unknown"
+        let machineName = await StressTestRuntime.shared.machineName ?? ProcessInfo.processInfo.environment["STRESS_TEST_MACHINE_NAME"] ?? "Unknown"
 
         let payload = RaftStressTestPayload(
             messagesSent: result.messagesSent,
@@ -278,7 +293,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        let apiKey = ProcessInfo.processInfo.environment["STRESS_TEST_API_KEY"] ?? ""
+        let apiKey = await StressTestRuntime.shared.apiKey ?? ProcessInfo.processInfo.environment["STRESS_TEST_API_KEY"] ?? ""
         request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
 
         do {

@@ -36,6 +36,9 @@ final class GRPCClientTransport: RaftClientTransport {
                 try await clientPool.reset()
             }
         }
+        guard result != nil else {
+            throw RaftGRPCError.transportError("Failed to communicate with peer \(peer) after \(retryCount) attempts")
+        }
 
         return result!
     }

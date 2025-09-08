@@ -59,11 +59,21 @@ let package = Package(
                 .product(name: "DistributedCluster", package: "swift-distributed-actors"),
             ],
         ),
+        .target(
+            name: "RaftTestManager",
+            dependencies: [
+                "RaftCore",
+                "RaftTest",
+                "RaftGRPCTransport",
+                "RaftDistributedActorsTransport",
+            ],
+        ),
         .executableTarget(
             name: "RaftApp",
             dependencies: [
                 "RaftCore",
                 "RaftTest",
+                "RaftTestManager",
                 "RaftGRPCTransport",
                 "RaftDistributedActorsTransport",
                 .product(name: "ArgumentParser", package: "swift-argument-parser"),

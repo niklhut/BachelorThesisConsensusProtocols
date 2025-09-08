@@ -39,6 +39,9 @@ final class Client: AsyncParsableCommand {
     @Option(help: "Test suite name")
     var testSuite: String = ""
 
+    @Option(help: "Timeout for stress test in seconds")
+    var timeout: Double = 300
+
     @Flag(help: "Skip sanity check after stress test")
     var skipSanityCheck: Bool = true
 
@@ -67,7 +70,15 @@ final class Client: AsyncParsableCommand {
         } else if tests {
             try await client.runFunctionalityTests()
         } else if stressTest {
-            try await client.runStressTest(operations: operations, concurrency: concurrency, testSuiteName: testSuite, cpuCores: cpuCores, memory: memory, skipSanityCheck: skipSanityCheck)
+            try await client.runStressTest(
+                operations: operations,
+                concurrency: concurrency,
+                testSuiteName: testSuite,
+                timeout: timeout,
+                cpuCores: cpuCores,
+                memory: memory,
+                skipSanityCheck: skipSanityCheck,
+            )
         }
     }
 }

@@ -1,4 +1,5 @@
 import ArgumentParser
+import Dispatch
 
 @main
 struct Raft: AsyncParsableCommand {
@@ -8,6 +9,7 @@ struct Raft: AsyncParsableCommand {
         subcommands: [
             Peer.self,
             Client.self,
-        ]
+            TestManager.self,
+        ],
     )
 }

@@ -7,6 +7,14 @@ public struct FileLogHandler: LogHandler {
     public var logLevel: Logger.Level = .info
     public var metadata: Logger.Metadata = [:]
 
+    private static let timestampFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm:ss.SSS"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone.current
+        return formatter
+    }()
+
     public init(label: String, fileURL: URL) throws {
         self.label = label
 
@@ -18,6 +26,7 @@ public struct FileLogHandler: LogHandler {
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         }
+
         fileHandle = try FileHandle(forWritingTo: fileURL)
         fileHandle.seekToEndOfFile()
     }
@@ -27,9 +36,18 @@ public struct FileLogHandler: LogHandler {
         set { metadata[key] = newValue }
     }
 
-    public func log(level: Logger.Level, message: Logger.Message, metadata: Logger.Metadata?, source: String, file: String, function: String, line: UInt) {
+    public func log(
+        level: Logger.Level,
+        message: Logger.Message,
+        metadata: Logger.Metadata?,
+        source: String,
+        file: String,
+        function: String,
+        line: UInt,
+    ) {
         let fullMetadata = (metadata?.isEmpty == false ? metadata! : self.metadata)
-        let logLine = "[\(level)] \(label): \(message) \(fullMetadata)\n"
+        let timestamp = Self.timestampFormatter.string(from: Date())
+        let logLine = "\(timestamp) [\(level)] \(label): \(message) \(fullMetadata)\n"
         if let data = logLine.data(using: .utf8) {
             fileHandle.write(data)
         }

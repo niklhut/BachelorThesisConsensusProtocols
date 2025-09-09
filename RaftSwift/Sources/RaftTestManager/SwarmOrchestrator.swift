@@ -88,6 +88,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
             throw NSError(domain: "SwarmOrchestrator", code: 1, userInfo: [NSLocalizedDescriptionKey: "No Docker images provided in scenario JSON root or CLI --images option"])
         }
         let combinations = generateCombinations(from: scenarios, images: imagesToUse)
+        let totalNumberOfTests = combinations.count
         var results: [TestResult] = []
 
         // Ensure clean state before starting
@@ -95,7 +96,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
         for (index, combo) in combinations.enumerated() {
             let testNumber = index + 1
-            let result = try await runSingleTest(testNumber: testNumber, params: combo, analytics: analytics)
+            let result = try await runSingleTest(testNumber: testNumber, totalNumberOfTests: totalNumberOfTests, params: combo, analytics: analytics)
             results.append(result)
         }
 
@@ -183,8 +184,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
     // MARK: - Single test execution
 
-    private func runSingleTest(testNumber: Int, params: TestCombination, analytics: AnalyticsSettings?) async throws -> TestResult {
-        logger.info("Starting test \(testNumber) with parameters: \(params.description)")
+    private func runSingleTest(testNumber: Int, totalNumberOfTests: Int, params: TestCombination, analytics: AnalyticsSettings?) async throws -> TestResult {
+        logger.info("Starting test \(testNumber) / \(totalNumberOfTests) with parameters: \(params.description)")
         let start = Date()
         var repetitionResults: [RepetitionResult] = []
 
@@ -196,12 +197,12 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         try await startPeers(params: params, nodeServers: nodeServers, port: port)
 
         for r in 0 ..< repetitions {
-            logger.info(" Test \(testNumber) - Repetition \(r + 1) / \(repetitions)")
+            logger.info(" Test \(testNumber) / \(totalNumberOfTests) - Repetition \(r + 1) / \(repetitions)")
             var status = RepetitionResult.Status.timeout
             var attempt = 0
 
             while attempt < retries {
-                logger.info(" Test \(testNumber) - Repetition \(r + 1) / \(repetitions) - Attempt \(attempt + 1) / \(retries)")
+                logger.info(" Test \(testNumber) / \(totalNumberOfTests) - Repetition \(r + 1) / \(repetitions) - Attempt \(attempt + 1) / \(retries)")
                 attempt += 1
                 if r == 0, attempt > 1 {
                     logger.info("  Full restart of peers for new attempt")

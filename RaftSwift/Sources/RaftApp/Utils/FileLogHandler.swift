@@ -9,6 +9,12 @@ public struct FileLogHandler: LogHandler {
 
     public init(label: String, fileURL: URL) throws {
         self.label = label
+
+        // Ensure directory exists
+        let directoryURL = fileURL.deletingLastPathComponent()
+        try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+
+        // Create file if it doesn't exist
         if !FileManager.default.fileExists(atPath: fileURL.path) {
             FileManager.default.createFile(atPath: fileURL.path, contents: nil)
         }

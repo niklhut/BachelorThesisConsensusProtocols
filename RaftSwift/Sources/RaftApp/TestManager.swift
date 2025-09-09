@@ -1,6 +1,7 @@
 import ArgumentParser
 import Dispatch
 import Foundation
+import Logging
 import RaftTestManager
 
 extension TestPersistence: ExpressibleByArgument {}
@@ -16,6 +17,19 @@ final class TestManager: AsyncParsableCommand {
     var scenarioConfig: String
 
     public func run() async throws {
+        LoggingSystem.bootstrap { label in
+            var stdoutHandler = StreamLogHandler.standardOutput(label: label)
+            stdoutHandler.logLevel = .debug // show all in console
+
+            let now = Date()
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+            let fileURL = URL(fileURLWithPath: "test-output/swarm-\(dateFormatter.string(from: now)).log")
+            let fileHandler = try! FileLogHandler(label: label, fileURL: fileURL)
+
+            return MultiplexLogHandler([stdoutHandler, fileHandler])
+        }
+
         // Create orchestrator with defaults; overrides will be applied from JSON root when present.
         let orchestrator = SwarmOrchestrator()
 

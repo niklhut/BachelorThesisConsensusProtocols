@@ -17,16 +17,17 @@ final class TestManager: AsyncParsableCommand {
     var scenarioConfig: String
 
     public func run() async throws {
+        // Create a single timestamp when the app starts
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
+        let logFileName = "swarm-\(dateFormatter.string(from: Date())).log"
+        let logFileURL = URL(fileURLWithPath: "test-output/\(logFileName)")
+
         LoggingSystem.bootstrap { label in
             var stdoutHandler = StreamLogHandler.standardOutput(label: label)
-            stdoutHandler.logLevel = .debug // show all in console
+            stdoutHandler.logLevel = .debug
 
-            let now = Date()
-            let dateFormatter = DateFormatter()
-            dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
-            let fileURL = URL(fileURLWithPath: "test-output/swarm-\(dateFormatter.string(from: now)).log")
-            let fileHandler = try! FileLogHandler(label: label, fileURL: fileURL)
-
+            let fileHandler = try! FileLogHandler(label: label, fileURL: logFileURL)
             return MultiplexLogHandler([stdoutHandler, fileHandler])
         }
 

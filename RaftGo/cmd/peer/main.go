@@ -30,7 +30,11 @@ func main() {
 			var persistence node.RaftNodePersistence
 			switch persistenceType {
 			case "file":
-				persistence, _ = node.NewFileRaftNodePersistence(compactionThreshold)
+				var err error
+				persistence, err = node.NewFileRaftNodePersistence(compactionThreshold)
+				if err != nil {
+					return fmt.Errorf("failed to initialize file persistence: %w", err)
+				}
 			case "inMemory":
 				persistence = node.NewInMemoryRaftNodePersistence(compactionThreshold)
 			default:
@@ -69,7 +73,7 @@ func main() {
 // Converts "1:localhost:10001,2:localhost:10002" to []util.Peer
 func parsePeers(raw string) []util.Peer {
 	var peers []util.Peer
-	for _, part := range strings.Split(raw, ",") {
+	for part := range strings.SplitSeq(raw, ",") {
 		fmt.Println(part)
 		if part == "" {
 			continue

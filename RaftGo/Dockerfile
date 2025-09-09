@@ -36,8 +36,8 @@ WORKDIR /app
 # Copy built binary from build stage
 COPY --from=build /app/raft-peer .
 
-# Change ownership
-RUN chown raft:raft /app/raft-peer
+# Change ownership of entire /app so user raft can write
+RUN chown -R raft:raft /app
 
 # Run as non-root user
 USER raft

@@ -80,50 +80,7 @@ final class TestManager: AsyncParsableCommand {
             sources.append(source)
         }
 
-        let results = try await orchestrator.run(using: URL(fileURLWithPath: scenarioConfig), images: nil)
-        try writeReport(results: results)
-    }
-
-    private func writeReport(results: [TestResult]) throws {
-        let dir = URL(fileURLWithPath: "test-output")
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let df = DateFormatter()
-        df.dateFormat = "yyyyMMdd_HHmmss"
-        let path = dir.appendingPathComponent("raft_swarm_test_report_\(df.string(from: Date())).txt")
-
-        var text = "Raft Swarm Test Suite Report\nGenerated on: \(Date())\n\n"
-        let passed = results.filter(\.success)
-        text += "Summary: \(passed.count) / \(results.count) tests passed.\n\n"
-
-        let failed = results.filter { !$0.success }
-        if !failed.isEmpty {
-            text += "--- FAILED TESTS ---\n"
-            for r in failed {
-                text += "Test \(r.testNumber): FAILED\n"
-                text += "  Parameters: \(describe(r.parameters))\n"
-                text += String(format: "  Duration: %.2fs\n", r.duration)
-                for rep in r.repetitions {
-                    text += "    Repetition \(rep.repetition): \(rep.status.rawValue.uppercased())\n"
-                }
-                text += "\n"
-            }
-        }
-
-        if !passed.isEmpty {
-            text += "--- PASSED TESTS ---\n"
-            for r in passed {
-                text += "Test \(r.testNumber): PASSED\n"
-                text += "  Parameters: \(describe(r.parameters))\n"
-                text += String(format: "  Duration: %.2fs\n", r.duration)
-                for rep in r.repetitions {
-                    text += "    Repetition \(rep.repetition): \(rep.status.rawValue.uppercased())\n"
-                }
-                text += "\n"
-            }
-        }
-
-        try text.write(to: path, atomically: true, encoding: .utf8)
-        print("Report written to \(path.path)")
+        try await orchestrator.run(using: URL(fileURLWithPath: scenarioConfig), images: nil)
     }
 
     private func describe(_ p: TestCombination) -> String {

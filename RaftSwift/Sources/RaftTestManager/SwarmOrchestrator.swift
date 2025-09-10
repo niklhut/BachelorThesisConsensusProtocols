@@ -63,7 +63,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
     // MARK: - Public API
 
-    public func run(using scenariosURL: URL, images: [String]? = nil) async throws -> [TestResult] {
+    public func run(using scenariosURL: URL, images: [String]? = nil) async throws {
         let data = try Data(contentsOf: scenariosURL)
         let decoder = JSONDecoder()
         let scenarios: [ScenarioConfig]
@@ -89,18 +89,16 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         }
         let combinations = generateCombinations(from: scenarios, images: imagesToUse)
         let totalNumberOfTests = combinations.count
-        var results: [TestResult] = []
 
         // Ensure clean state before starting
         cleanup()
 
         for (index, combo) in combinations.enumerated() {
             let testNumber = index + 1
-            let result = try await runSingleTest(testNumber: testNumber, totalNumberOfTests: totalNumberOfTests, params: combo, analytics: analytics)
-            results.append(result)
+            try await runSingleTest(testNumber: testNumber, totalNumberOfTests: totalNumberOfTests, params: combo, analytics: analytics)
         }
 
-        return results
+        cleanup()
     }
 
     public func cleanup() {
@@ -184,9 +182,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
     // MARK: - Single test execution
 
-    private func runSingleTest(testNumber: Int, totalNumberOfTests: Int, params: TestCombination, analytics: AnalyticsSettings?) async throws -> TestResult {
+    private func runSingleTest(testNumber: Int, totalNumberOfTests: Int, params: TestCombination, analytics: AnalyticsSettings?) async throws {
         logger.info("Starting test \(testNumber) / \(totalNumberOfTests) with parameters: \(params.description)")
-        let start = Date()
         var repetitionResults: [RepetitionResult] = []
 
         // Select servers for peers
@@ -219,9 +216,6 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         }
 
         cleanup()
-
-        let success = repetitionResults.allSatisfy { $0.status == .success }
-        return TestResult(testNumber: testNumber, parameters: params, success: success, duration: Date().timeIntervalSince(start), repetitions: repetitionResults)
     }
 
     private func startPeers(params: TestCombination, nodeServers: [String], port: Int) async throws {

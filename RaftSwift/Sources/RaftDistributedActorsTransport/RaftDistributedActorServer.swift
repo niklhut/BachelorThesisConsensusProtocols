@@ -35,6 +35,7 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
             settings.bindPort = ownPeer.port
             settings.bindHost = ownPeer.address
             settings.downingStrategy = .timeout(.default)
+            settings.logging.logLevel = .error
         }
 
         let transport = DistributedActorNodeTransport(

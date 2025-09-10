@@ -21,6 +21,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
         let actorSystem = await ClusterSystem("raft.DistributedActorSystem.Client.\(randomId)") { settings in
             settings.bindPort = randomId
             settings.downingStrategy = .timeout(.default)
+            settings.logging.logLevel = .error
         }
 
         connectToPeers(actorSystem: actorSystem)

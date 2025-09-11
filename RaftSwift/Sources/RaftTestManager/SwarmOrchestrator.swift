@@ -28,6 +28,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
     private var repetitions: Int
     private var persistence: TestPersistence
     private var testSuiteName: String
+    private var resumeFromTestNumber: Int?
 
     public init(
         collectMetrics: Bool = true,
@@ -48,7 +49,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
     }
 
     // Allow runtime overrides from scenario root
-    public func applyGlobalOverrides(images: [String]?, timeout: Int?, retries: Int?, repetitions: Int?, persistence: TestPersistence?, collectMetrics: Bool?, testSuiteName: String? = nil) {
+    public func applyGlobalOverrides(images: [String]?, timeout: Int?, retries: Int?, repetitions: Int?, persistence: TestPersistence?, collectMetrics: Bool?, testSuiteName: String? = nil, resumeFromTestNumber: Int? = nil) {
         // images handled by caller
         if let t = timeout { self.timeout = TimeInterval(t) }
         if let r = retries { self.retries = r }
@@ -56,7 +57,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         if let p = persistence { self.persistence = p }
         if let cm = collectMetrics { self.collectMetrics = cm }
         if let ts = testSuiteName { self.testSuiteName = ts }
-        logger.info("Applied global overrides: timeout=\(self.timeout)s, retries=\(self.retries), repetitions=\(self.repetitions), persistence=\(self.persistence), collectMetrics=\(self.collectMetrics), testSuiteName='\(self.testSuiteName)'")
+        if let rs = resumeFromTestNumber { self.resumeFromTestNumber = rs }
+        logger.info("Applied global overrides: timeout=\(self.timeout)s, retries=\(self.retries), repetitions=\(self.repetitions), persistence=\(self.persistence), collectMetrics=\(self.collectMetrics), testSuiteName='\(self.testSuiteName)', resumeFromTestNumber=\(String(describing: self.resumeFromTestNumber))")
     }
 
     public enum Outcome: Sendable { case success, failure, timeout }
@@ -95,6 +97,12 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
         for (index, combo) in combinations.enumerated() {
             let testNumber = index + 1
+
+            if let resumeFrom = resumeFromTestNumber, testNumber < resumeFrom {
+                logger.info("Skipping test \(testNumber) / \(totalNumberOfTests) to resume from test number \(resumeFrom)")
+                continue
+            }
+
             try await runSingleTest(testNumber: testNumber, totalNumberOfTests: totalNumberOfTests, params: combo, analytics: analytics)
         }
 
@@ -255,8 +263,9 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
         try await withThrowingTaskGroup { group in
             for args in peerArgs {
-                group.addTask {
-                    try self.manager.createService(args, background: false)
+                group.addTask { [weak self] in
+                    guard let self else { throw CancellationError() }
+                    try manager.createService(args, background: false)
                 }
             }
             try await group.waitForAll()
@@ -288,27 +297,19 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         await StressTestRuntime.shared.setAllowPartialOnStop(allowPartialOnTimeout)
 
         let suite = testSuiteName
-        let clientTask: Task<SwarmOrchestrator.Outcome, Never> = Task<Outcome, Never> {
-            do {
-                try await client.runStressTest(
-                    operations: params.operations,
-                    concurrency: params.concurrency,
-                    testSuiteName: suite,
-                    timeout: timeout,
-                    cpuCores: cpuCores,
-                    memory: memoryGB,
-                    skipSanityCheck: true,
-                )
-                return .success
-            } catch {
-                return .failure
-            }
-        }
-
-        return switch await clientTask.value {
-        case .success: .success
-        case .failure: .failed
-        case .timeout: .timeout
+        do {
+            try await client.runStressTest(
+                operations: params.operations,
+                concurrency: params.concurrency,
+                testSuiteName: suite,
+                timeout: timeout,
+                cpuCores: cpuCores,
+                memory: memoryGB,
+                skipSanityCheck: true,
+            )
+            return .success
+        } catch {
+            return .failed
         }
     }
 

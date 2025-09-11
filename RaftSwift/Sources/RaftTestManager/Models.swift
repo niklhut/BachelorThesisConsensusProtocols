@@ -21,6 +21,7 @@ public struct ScenarioRoot: Decodable, Sendable {
     public let persistence: TestPersistence?
     public let collectMetrics: Bool?
     public let testSuiteName: String?
+    public let resumeFromTestNumber: Int?
 
     enum CodingKeys: String, CodingKey {
         case servers
@@ -33,6 +34,7 @@ public struct ScenarioRoot: Decodable, Sendable {
         case persistence
         case collectMetrics = "collect_metrics"
         case testSuiteName = "test_suite_name"
+        case resumeFromTestNumber = "resume_from_test_number"
     }
 }
 

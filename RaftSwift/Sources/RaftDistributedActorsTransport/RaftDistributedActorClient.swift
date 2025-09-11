@@ -43,7 +43,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
             try await group.waitForAll()
         }
 
-        print("\n\nAll peers joined\n\n")
+        logger.info("Connected to all peers")
 
         let client = RaftClient(
             peers: peers,

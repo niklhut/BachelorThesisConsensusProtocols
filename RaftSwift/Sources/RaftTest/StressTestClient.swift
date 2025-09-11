@@ -153,37 +153,53 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     ///
     /// - Parameters:
     /// - value: The log entry value to append
-    /// - startTime: The start time of the operation
-    /// - Returns: A tuple containing the success status and latency
     private func putEntry(
         _ value: PutRequest,
-        startTime: Date = Date(),
+        maxAttempts: Int = 30,
     ) async -> (success: Bool, latency: Double) {
-        if Task.isCancelled { return (false, 0) }
-        guard let currentLeader = leader else {
-            return (false, 0)
-        }
+        let start = Date()
+        var attempts = 0
 
-        do {
-            if Task.isCancelled { return (false, 0) }
-            let result = try await client.put(request: value, to: currentLeader)
-            let latency = Date().timeIntervalSince(startTime) * 1000
-
-            if let leaderHint = result.leaderHint {
-                leader = leaderHint
-                return await putEntry(value)
-            } else if !result.success {
-                // Wait for leader election then retry with new leader
-                try await Task.sleep(for: .milliseconds(100))
-                leader = try await client.findLeader()
-                return await putEntry(value)
-            } else {
-                return (result.success, latency)
+        while !Task.isCancelled, attempts < maxAttempts {
+            attempts += 1
+            guard let currentLeader = leader else {
+                // try to find leader once
+                do {
+                    leader = try await client.findLeader()
+                } catch {
+                    // small backoff then retry
+                    try? await Task.sleep(for: .milliseconds(100))
+                    continue
+                }
+                continue
             }
-        } catch {
-            if Task.isCancelled { return (false, 0) }
-            return await putEntry(value)
+
+            do {
+                let result = try await client.put(request: value, to: currentLeader)
+                let latency = Date().timeIntervalSince(start) * 1000
+
+                if let leaderHint = result.leaderHint {
+                    leader = leaderHint
+                    // retry with new leader (loop continues)
+                    await Task.yield()
+                    continue
+                } else if !result.success {
+                    // backoff and re-resolve leader
+                    try await Task.sleep(for: .milliseconds(100))
+                    leader = try await client.findLeader()
+                    continue
+                } else {
+                    return (true, latency)
+                }
+            } catch {
+                if Task.isCancelled { break }
+                // backoff and retry
+                try? await Task.sleep(for: .milliseconds(100))
+                continue
+            }
         }
+
+        return (false, 0)
     }
 
     /// Performs a sanity check to see that all operations are actually persisted on all nodes

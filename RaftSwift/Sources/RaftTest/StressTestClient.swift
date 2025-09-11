@@ -1,4 +1,3 @@
-import ConsoleKitTerminal
 import Foundation
 #if canImport(FoundationNetworking)
     import FoundationNetworking
@@ -15,8 +14,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// The logger to use for logging.
     let logger = Logger(label: "raft.StressTestClient")
 
-    /// The terminal to use for output.
-    let terminal = Terminal()
+    /// Randomness to ensure unique values across runs
+    let randomness = UUID()
 
     /// The leader of the cluster.
     var leader: Peer?
@@ -46,17 +45,9 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     ///   - concurrency: The number of concurrent operations to perform.
     public func run(operations: Int, concurrency: Int, timeout: TimeInterval, skipSanityCheck: Bool) async throws {
         let startTime = Date()
-
-        let progressBar = terminal.progressBar(title: "Stress Test")
-
-        progressBar.start()
+        logger.info("Starting stress test with \(operations) operations, \(concurrency) concurrency")
 
         leader = try await client.findLeader()
-
-        // Pre-generate all test values before starting the test
-        let testValues = (0 ..< operations).map { i in
-            PutRequest(key: "stress-key-\(i)", value: "stress-value-\(i)-\(UUID().uuidString)")
-        }
 
         var nextOperationIndex = concurrency
 
@@ -64,9 +55,10 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         let result = await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
             // Initialize with 'concurrency' number of tasks
             for i in 0 ..< min(concurrency, operations) {
-                group.addTask {
+                group.addTask { [weak self] in
+                    guard let self else { return (false, 0) }
                     if Task.isCancelled { return (false, 0) }
-                    return await self.putEntry(testValues[i])
+                    return await putEntry(makePutRequest(index: i))
                 }
             }
 
@@ -79,7 +71,6 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             for await result in group {
                 if Task.isCancelled { break }
                 completed += 1
-                progressBar.activity.currentProgress = Double(completed) / Double(operations)
 
                 if result.success {
                     successful += 1
@@ -97,9 +88,10 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                     let nextIndex = nextOperationIndex
                     nextOperationIndex += 1
 
-                    group.addTask {
+                    group.addTask { [weak self] in
+                        guard let self else { return (false, 0) }
                         if Task.isCancelled { return (false, 0) }
-                        return await self.putEntry(testValues[nextIndex])
+                        return await putEntry(makePutRequest(index: nextIndex))
                     }
                 }
 
@@ -111,7 +103,6 @@ public actor StressTestClient<Transport: RaftClientTransport> {
 
             // Cancel any remaining tasks (shouldn't be necessary, but just in case)
             group.cancelAll()
-            progressBar.succeed()
 
             let testDuration = Date().timeIntervalSince(startTime)
             let averageLatency = successful > 0 ? totalLatency / Double(successful) : 0
@@ -133,6 +124,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             return result
         }
 
+        logger.info("Stress test completed")
+
         #if !DEBUG
             // If stop was requested and allowed to send partial, still send analytics
             if await StressTestRuntime.shared.allowPartialOnStop {
@@ -143,11 +136,18 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         #endif
 
         if !skipSanityCheck {
-            try await sanityCheck(testValues: testValues, concurrency: concurrency)
+            try await sanityCheck(concurrency: concurrency)
         }
     }
 
     // MARK: - Helpers
+
+    /// Creates a PutRequest with unique key and value based on the index and randomness
+    /// - Parameter index: The index to use for generating the key and value
+    /// - Returns: A PutRequest with the generated key and value
+    func makePutRequest(index: Int) -> PutRequest {
+        PutRequest(key: "stress-key-\(index)", value: "stress-value-\(index)-\(randomness.uuidString)")
+    }
 
     /// Execute a single operation with leader failover handling
     ///
@@ -187,10 +187,13 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     }
 
     /// Performs a sanity check to see that all operations are actually persisted on all nodes
-    private func sanityCheck(testValues: [PutRequest], concurrency: Int) async throws {
+    private func sanityCheck(concurrency: Int) async throws {
         logger.info("Performing sanity check to see that all operations are actually persisted on all nodes")
         try await Task.sleep(for: .seconds(1))
         try await client.resetClients()
+
+        // Generate test values
+        let testValues = (0 ..< 100).map { makePutRequest(index: $0) }
 
         let sanityTasks = testValues.flatMap { value in
             self.client.peers.map { peer in

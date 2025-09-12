@@ -39,6 +39,7 @@ public final class RaftGRPCClient: RaftTestApplication {
         concurrency: Int,
         testSuiteName: String,
         timeout: TimeInterval,
+        durationSeconds: Int?,
         cpuCores: Double?,
         memory: Double?,
         skipSanityCheck: Bool,
@@ -51,6 +52,7 @@ public final class RaftGRPCClient: RaftTestApplication {
             operations: operations,
             concurrency: concurrency,
             timeout: timeout,
+            durationSeconds: durationSeconds,
             skipSanityCheck: skipSanityCheck,
         )
     }

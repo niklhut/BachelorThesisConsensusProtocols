@@ -43,86 +43,100 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameters:
     ///   - operations: The number of operations to perform.
     ///   - concurrency: The number of concurrent operations to perform.
-    public func run(operations: Int, concurrency: Int, timeout: TimeInterval, skipSanityCheck: Bool) async throws {
+    public func run(operations: Int, concurrency: Int, timeout: TimeInterval, durationSeconds: Int?, skipSanityCheck: Bool) async throws {
         let startTime = Date()
-        logger.info("Starting stress test with \(operations) operations, \(concurrency) concurrency")
+        if let durationSeconds {
+            logger.info("Starting stress test for \(durationSeconds)s, concurrency=\(concurrency)")
+        } else {
+            logger.info("Starting stress test with \(operations) operations, concurrency=\(concurrency)")
+        }
 
         leader = try await client.findLeader()
 
         var nextOperationIndex = concurrency
+        let targetDuration: TimeInterval? = durationSeconds.flatMap { TimeInterval($0) }
 
-        // Use task group to maintain constant concurrency
-        let result = await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
-            // Initialize with 'concurrency' number of tasks
-            for i in 0 ..< min(concurrency, operations) {
-                group.addTask { [weak self] in
-                    guard let self else { return (false, 0) }
-                    if Task.isCancelled { return (false, 0) }
-                    return await putEntry(makePutRequest(index: i))
-                }
-            }
-
-            // Process results and maintain concurrency
-            var completed = 0
-            var successful = 0
-            var failed = 0
-            var totalLatency = 0.0
-
-            for await result in group {
-                if Task.isCancelled { break }
-                completed += 1
-
-                if result.success {
-                    successful += 1
-                    totalLatency += result.latency
-                } else {
-                    failed += 1
-                }
-
-                // Add a new task if there are operations remaining
-                // let stopRequested = await StressTestRuntime.shared.stopRequested
-                let timeoutReached = startTime.timeIntervalSinceNow <= -timeout
-                if Task.isCancelled || timeoutReached {
-                    logger.info("Timeout reached or cancelled, not adding new tasks")
-                } else if nextOperationIndex < operations {
-                    let nextIndex = nextOperationIndex
-                    nextOperationIndex += 1
-
+        // Aggregation task that runs the load and collects metrics
+        let aggregationTask = Task { () async -> RaftStressTestResult in
+            await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
+                // Initialize with 'concurrency' number of tasks
+                let initialTasks = (durationSeconds != nil) ? concurrency : min(concurrency, operations)
+                for i in 0 ..< initialTasks {
                     group.addTask { [weak self] in
                         guard let self else { return (false, 0) }
                         if Task.isCancelled { return (false, 0) }
-                        return await putEntry(makePutRequest(index: nextIndex))
+                        return await putEntry(makePutRequest(index: i))
                     }
                 }
 
-                if completed == operations || timeoutReached || Task.isCancelled {
-                    group.cancelAll()
-                    break
+                // Process results and maintain concurrency
+                var completed = 0
+                var successful = 0
+                var failed = 0
+                var totalLatency = 0.0
+
+                for await result in group {
+                    if Task.isCancelled { break }
+                    completed += 1
+
+                    if result.success {
+                        successful += 1
+                        totalLatency += result.latency
+                    } else {
+                        failed += 1
+                    }
+
+                    // Add a new task if there are operations remaining
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let durationReached = targetDuration.map { elapsed >= $0 } ?? false
+                    let timeoutReached = (durationSeconds == nil) ? (elapsed >= timeout) : false
+                    if Task.isCancelled || durationReached || timeoutReached {
+                        // Do not enqueue new work once duration/timeout reached
+                        logger.info("Duration/timeout reached or cancelled, not adding new tasks")
+                    } else if (durationSeconds != nil) || (nextOperationIndex < operations) {
+                        let nextIndex = nextOperationIndex
+                        nextOperationIndex += 1
+
+                        group.addTask { [weak self] in
+                            guard let self else { return (false, 0) }
+                            if Task.isCancelled { return (false, 0) }
+                            return await putEntry(makePutRequest(index: nextIndex))
+                        }
+                    }
+
+                    // Stop consuming when: duration reached (strict), timeout/cancel,
+                    // or in operations mode: when all operations completed.
+                    let operationsCompleted = (durationSeconds == nil) && (completed == operations)
+                    if durationReached || timeoutReached || operationsCompleted || Task.isCancelled {
+                        group.cancelAll()
+                        break
+                    }
                 }
+
+                // Cancel any remaining tasks (shouldn't be necessary, but just in case)
+                group.cancelAll()
+
+                let testDuration = Date().timeIntervalSince(startTime)
+                let averageLatency = successful > 0 ? totalLatency / Double(successful) : 0
+                let throughput = testDuration > 0 ? Double(completed) / testDuration : 0
+
+                let result = RaftStressTestResult(
+                    start: startTime,
+                    end: Date(),
+                    messagesSent: completed,
+                    successfulMessages: successful,
+                    averageLatency: averageLatency,
+                    averageThroughput: throughput,
+                    totalDuration: testDuration,
+                    concurrency: concurrency,
+                    numberOfPeers: client.peers.count,
+                )
+
+                logger.info(.init(stringLiteral: result.description))
+                return result
             }
-
-            // Cancel any remaining tasks (shouldn't be necessary, but just in case)
-            group.cancelAll()
-
-            let testDuration = Date().timeIntervalSince(startTime)
-            let averageLatency = successful > 0 ? totalLatency / Double(successful) : 0
-            let throughput = testDuration > 0 ? Double(completed) / testDuration : 0
-
-            let result = RaftStressTestResult(
-                start: startTime,
-                end: Date(),
-                messagesSent: completed,
-                successfulMessages: successful,
-                averageLatency: averageLatency,
-                averageThroughput: throughput,
-                totalDuration: testDuration,
-                concurrency: concurrency,
-                numberOfPeers: client.peers.count,
-            )
-
-            logger.info(.init(stringLiteral: result.description))
-            return result
         }
+        let result = await aggregationTask.value
 
         logger.info("Stress test completed")
 

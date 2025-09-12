@@ -16,6 +16,7 @@ public struct ScenarioRoot: Decodable, Sendable {
     // optional global overrides
     public let images: [String]?
     public let timeout: Int?
+    public let testDurationSeconds: Int?
     public let retries: Int?
     public let repetitions: Int?
     public let persistence: TestPersistence?
@@ -29,6 +30,7 @@ public struct ScenarioRoot: Decodable, Sendable {
         case scenarios
         case images
         case timeout
+        case testDurationSeconds = "test_duration_seconds"
         case retries
         case repetitions
         case persistence
@@ -100,9 +102,10 @@ public struct TestCombination: Sendable {
     public let scenarioName: String?
     public let useDistributedActorSystem: Bool
     public let useManualLocks: Bool
+    public let testDurationSeconds: Int?
 
     var description: String {
-        "{image: \(image), compaction: \(compactionThreshold), peers: \(peers), ops: \(operations), conc: \(concurrency), cpu: \(cpuLimit ?? "nil"), mem: \(memoryLimit ?? "nil"), persistence: \(persistence), scenario: \(scenarioName ?? "nil"), DAS: \(useDistributedActorSystem), manualLocks: \(useManualLocks)}"
+        "{image: \(image), compaction: \(compactionThreshold), peers: \(peers), ops: \(operations), conc: \(concurrency), cpu: \(cpuLimit ?? "nil"), mem: \(memoryLimit ?? "nil"), persistence: \(persistence), scenario: \(scenarioName ?? "nil"), DAS: \(useDistributedActorSystem), manualLocks: \(useManualLocks), duration: \(testDurationSeconds.map(String.init) ?? "nil")}"
     }
 }
 

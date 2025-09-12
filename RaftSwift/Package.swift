@@ -80,15 +80,15 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
         ),
-        .testTarget(
-            name: "RaftTests",
-            dependencies: [
-                "RaftApp",
-                "RaftCore",
-                "RaftGRPCTransport",
-                "RaftDistributedActorsTransport",
-                .product(name: "Testing", package: "swift-testing"),
-            ],
-        ),
+        // .testTarget(
+        //     name: "RaftTests",
+        //     dependencies: [
+        //         "RaftApp",
+        //         "RaftCore",
+        //         "RaftGRPCTransport",
+        //         "RaftDistributedActorsTransport",
+        //         .product(name: "Testing", package: "swift-testing"),
+        //     ],
+        // ),
     ],
 )

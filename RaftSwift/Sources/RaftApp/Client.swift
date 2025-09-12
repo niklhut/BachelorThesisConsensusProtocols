@@ -42,6 +42,9 @@ final class Client: AsyncParsableCommand {
     @Option(help: "Timeout for stress test in seconds")
     var timeout: Double = 300
 
+    @Option(name: .customLong("duration-seconds"), help: "Fixed duration for stress test in seconds (overrides operations count to run by time)")
+    var durationSeconds: Int? = nil
+
     @Flag(help: "Skip sanity check after stress test")
     var skipSanityCheck: Bool = true
 
@@ -75,6 +78,7 @@ final class Client: AsyncParsableCommand {
                 concurrency: concurrency,
                 testSuiteName: testSuite,
                 timeout: timeout,
+                durationSeconds: durationSeconds,
                 cpuCores: cpuCores,
                 memory: memory,
                 skipSanityCheck: skipSanityCheck,

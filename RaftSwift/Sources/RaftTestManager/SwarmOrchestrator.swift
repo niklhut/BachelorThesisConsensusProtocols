@@ -30,6 +30,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
     private var persistence: TestPersistence
     private var testSuiteName: String
     private var resumeFromTestNumber: Int?
+    private var testDurationSeconds: Int?
 
     public init(
         collectMetrics: Bool = true,
@@ -50,7 +51,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
     }
 
     // Allow runtime overrides from scenario root
-    public func applyGlobalOverrides(images: [String]?, timeout: Int?, retries: Int?, repetitions: Int?, persistence: TestPersistence?, collectMetrics: Bool?, testSuiteName: String? = nil, resumeFromTestNumber: Int? = nil) {
+    public func applyGlobalOverrides(images: [String]?, timeout: Int?, retries: Int?, repetitions: Int?, persistence: TestPersistence?, collectMetrics: Bool?, testSuiteName: String? = nil, resumeFromTestNumber: Int? = nil, testDurationSeconds: Int? = nil) {
         // images handled by caller
         if let t = timeout { self.timeout = TimeInterval(t) }
         if let r = retries { self.retries = r }
@@ -59,7 +60,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         if let cm = collectMetrics { self.collectMetrics = cm }
         if let ts = testSuiteName { self.testSuiteName = ts }
         if let rs = resumeFromTestNumber { self.resumeFromTestNumber = rs }
-        logger.info("Applied global overrides: timeout=\(self.timeout)s, retries=\(self.retries), repetitions=\(self.repetitions), persistence=\(self.persistence), collectMetrics=\(self.collectMetrics), testSuiteName='\(self.testSuiteName)', resumeFromTestNumber=\(String(describing: self.resumeFromTestNumber))")
+        if let td = testDurationSeconds { self.testDurationSeconds = td }
+        logger.info("Applied global overrides: timeout=\(self.timeout)s, retries=\(self.retries), repetitions=\(self.repetitions), persistence=\(self.persistence), collectMetrics=\(self.collectMetrics), testSuiteName='\(self.testSuiteName)', resumeFromTestNumber=\(String(describing: self.resumeFromTestNumber)), durationSeconds=\(String(describing: self.testDurationSeconds)))")
     }
 
     public enum Outcome: Sendable { case success, failure, timeout }
@@ -129,7 +131,10 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
             let compaction = listOrNil(vary?.compactionThresholds, fallback: fixed?.compactionThresholds) ?? [1000]
             let peers = listOrNil(vary?.peerCounts, fallback: fixed?.peerCounts) ?? [3]
-            let ops = listOrNil(vary?.operationCounts, fallback: fixed?.operationCounts) ?? [10000]
+            var ops = listOrNil(vary?.operationCounts, fallback: fixed?.operationCounts) ?? [10000]
+            if testDurationSeconds != nil, let first = ops.first {
+                ops = [first]
+            }
             let conc = listOrNil(vary?.concurrencyLevels, fallback: fixed?.concurrencyLevels) ?? [2]
 
             // instance sizes precedence
@@ -171,10 +176,10 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                                 for (cpu, mem) in instancePairs {
                                     logger.debug("         - Instance: CPU: \(cpu ?? "N/A"), Memory: \(mem ?? "N/A")")
                                     if image.lowercased().contains("raftswift") {
-                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false))
-                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: true, useManualLocks: false))
+                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
+                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: true, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
                                     } else {
-                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false))
+                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
                                     }
                                 }
                             }
@@ -306,6 +311,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                 concurrency: params.concurrency,
                 testSuiteName: suite,
                 timeout: timeout,
+                durationSeconds: params.testDurationSeconds,
                 cpuCores: cpuCores,
                 memory: memoryGB,
                 skipSanityCheck: true,

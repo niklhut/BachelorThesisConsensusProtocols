@@ -19,6 +19,7 @@ public protocol RaftTestApplication: Sendable {
         concurrency: Int,
         testSuiteName: String,
         timeout: TimeInterval,
+        durationSeconds: Int?,
         cpuCores: Double?,
         memory: Double?,
         skipSanityCheck: Bool,

@@ -66,6 +66,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
         concurrency: Int,
         testSuiteName: String,
         timeout: TimeInterval,
+        durationSeconds: Int?,
         cpuCores: Double?,
         memory: Double?,
         skipSanityCheck: Bool,
@@ -78,6 +79,7 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
             operations: operations,
             concurrency: concurrency,
             timeout: timeout,
+            durationSeconds: durationSeconds,
             skipSanityCheck: skipSanityCheck,
         )
     }

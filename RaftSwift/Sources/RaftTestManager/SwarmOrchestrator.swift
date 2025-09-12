@@ -20,6 +20,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
     private var logger = Logger(label: "SwarmOrchestrator")
 
     private var isCleaningUp = false
+    private var lastPort = 50000
 
     private let manager: DockerSwarmServiceManager
     private var collectMetrics: Bool
@@ -196,7 +197,9 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
         // Select servers for peers
         let nodeServers = Array(servers.prefix(params.peers).map(\.0))
-        let port = Int.random(in: 50000 ... 50100)
+        let port = lastPort
+        lastPort += 1
+        if lastPort > 50100 { lastPort = 50000 }
 
         // Start peer containers once before repetitions
         try await startPeers(params: params, nodeServers: nodeServers, port: port)

@@ -1,4 +1,5 @@
 import DistributedCluster
+import Foundation
 import Logging
 import RaftCore
 
@@ -28,8 +29,6 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
     }
 
     public func serve() async throws {
-        var node: (any RaftNodeProtocol)? = nil
-
         let actorSystem = await ClusterSystem("raft.DistributedActorSystem.\(ownPeer.id)") {
             settings in
             settings.bindPort = ownPeer.port
@@ -39,10 +38,11 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
         }
 
         let transport = DistributedActorNodeTransport(
-            nodeProvider: { node }, peers: peers, actorSystem: actorSystem,
+            peers: peers, actorSystem: actorSystem,
         )
 
-        node =
+        let nodeId = UUID()
+        let node: any RaftNodeProtocol =
             if useManualLock {
                 RaftNodeManualLock(
                     ownPeer,
@@ -63,11 +63,13 @@ public final class RaftDistributedActorServer: RaftNodeApplication, PeerConnecta
                 )
             }
 
-        try await transport.setNode()
+        await NodeRegistry.shared.register(node, id: nodeId)
+
+        try await transport.setNode(nodeId: nodeId)
 
         connectToPeers(actorSystem: actorSystem)
 
-        await node!.start()
+        await node.start()
         try await transport.findPeers()
         await actorSystem.receptionist.checkIn(transport, with: .raftNode)
 

@@ -69,11 +69,18 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
         durationSeconds: Int?,
         cpuCores: Double?,
         memory: Double?,
+        payloadSizeBytes: Int,
         skipSanityCheck: Bool,
     ) async throws {
         let client = try await setupClient()
 
-        let stressTestClient = StressTestClient(client: client, testSuite: testSuiteName, cpuCores: cpuCores, memory: memory)
+        let stressTestClient = StressTestClient(
+            client: client,
+            testSuite: testSuiteName,
+            cpuCores: cpuCores,
+            memory: memory,
+            payloadSizeBytes: payloadSizeBytes,
+        )
 
         try await stressTestClient.run(
             operations: operations,

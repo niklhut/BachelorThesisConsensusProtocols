@@ -54,6 +54,9 @@ final class Client: AsyncParsableCommand {
     @Option(help: "The amount of memory (in GB) available to each node")
     var memory: Double? = nil
 
+    @Option(help: "Payload size for each message (bytes). Accepts plain bytes (e.g. 16), or human-readable sizes like 16B, 1KB, 64KB, 1MB.")
+    var payloadSize: String? = nil
+
     // MARK: - Transport
 
     @Flag(help: "Use Distributed Actor System for transport")
@@ -68,6 +71,8 @@ final class Client: AsyncParsableCommand {
             RaftGRPCClient(peers: peers)
         }
 
+        let payloadSizeBytes = Self.parseSizeToBytes(payloadSize)
+
         if interactive {
             try await client.runInteractiveClient()
         } else if tests {
@@ -81,8 +86,33 @@ final class Client: AsyncParsableCommand {
                 durationSeconds: durationSeconds,
                 cpuCores: cpuCores,
                 memory: memory,
+                payloadSizeBytes: payloadSizeBytes ?? 55, // default to 55 bytes if not specified
                 skipSanityCheck: skipSanityCheck,
             )
         }
+    }
+
+    private static func parseSizeToBytes(_ s: String?) -> Int? {
+        guard let s, !s.isEmpty else { return nil }
+        let t = s.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        // Exact bytes
+        if let n = Int(t) { return n }
+        if t.hasSuffix("B") {
+            let num = String(t.dropLast())
+            if let n = Int(num) { return n }
+        }
+        if t.hasSuffix("KB") {
+            let num = String(t.dropLast(2))
+            if let n = Double(num) { return Int(n * 1024.0) }
+        }
+        if t.hasSuffix("MB") {
+            let num = String(t.dropLast(2))
+            if let n = Double(num) { return Int(n * 1024.0 * 1024.0) }
+        }
+        if t.hasSuffix("GB") {
+            let num = String(t.dropLast(2))
+            if let n = Double(num) { return Int(n * 1024.0 * 1024.0 * 1024.0) }
+        }
+        return nil
     }
 }

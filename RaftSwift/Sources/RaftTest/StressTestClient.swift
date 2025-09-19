@@ -29,14 +29,55 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// The amount of memory (in GB) available to each node.
     var memory: Double?
 
+    /// Target payload size (bytes) for the value in each request.
+    /// If nil or <= 0, a default small value string is used.
+    var payloadSizeBytes: Int
+
+    /// Precomputed seed prefix for payloads to minimize per-request work
+    private let fixedIndexWidth = 6
+    private var payloadSeedPrefix: String = ""
+    /// Precomputed filler string used when `payloadSizeBytes` is set and seed is smaller than size
+    private var precomputedFiller: String?
+
     /// Initializes a new instance of the StressTestClient class.
+    ///
     /// - Parameters:
     ///   - client: The Raft client to use for communication with the server.
-    public init(client: RaftClient<Transport>, testSuite: String?, cpuCores: Double?, memory: Double?) {
+    ///   - testSuite: The test suite name.
+    ///   - cpuCores: The number of CPU cores available to each node.
+    ///   - memory: The amount of memory (in GB) available to each node.
+    ///   - payloadSizeBytes: The target payload size (in bytes) for each request's value.
+    public init(
+        client: RaftClient<Transport>,
+        testSuite: String?,
+        cpuCores: Double?,
+        memory: Double?,
+        payloadSizeBytes: Int = 55,
+    ) {
         self.client = client
         self.testSuite = testSuite
         self.cpuCores = cpuCores
         self.memory = memory
+
+        // Precompute seed prefix (index appended at use time)
+        let payloadSeedPrefix = randomness.uuidString + "-"
+        self.payloadSeedPrefix = payloadSeedPrefix
+
+        // Precompute a filler only if we have a fixed payload size configured and it's positive.
+        if payloadSizeBytes > 0 {
+            self.payloadSizeBytes = payloadSizeBytes
+            // Build the minimal seed for index=0 (largest index length bounded by fixed width)
+            let minimalSeed = "\(payloadSeedPrefix)0-" // actual index string length normalized later
+            let seedBytes = minimalSeed.lengthOfBytes(using: .utf8)
+            if seedBytes < payloadSizeBytes {
+                precomputedFiller = String(repeating: "x", count: payloadSizeBytes - seedBytes)
+            } else {
+                precomputedFiller = nil
+            }
+        } else {
+            precomputedFiller = nil
+            self.payloadSizeBytes = 55 // default size
+        }
     }
 
     /// Runs the stress test client.
@@ -45,10 +86,11 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     ///   - concurrency: The number of concurrent operations to perform.
     public func run(operations: Int, concurrency: Int, timeout: TimeInterval, durationSeconds: Int?, skipSanityCheck: Bool) async throws {
         let startTime = Date()
+        let payloadLabel = payloadSizeBytes > 0 ? "payload=\(payloadSizeBytes)B" : "payload=default"
         if let durationSeconds {
-            logger.info("Starting stress test for \(durationSeconds)s, concurrency=\(concurrency)")
+            logger.info("Starting stress test for \(durationSeconds)s, concurrency=\(concurrency), \(payloadLabel)")
         } else {
-            logger.info("Starting stress test with \(operations) operations, concurrency=\(concurrency)")
+            logger.info("Starting stress test with \(operations) operations, concurrency=\(concurrency), \(payloadLabel)")
         }
 
         leader = try await client.findLeader()
@@ -129,6 +171,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                     averageThroughput: throughput,
                     totalDuration: testDuration,
                     concurrency: concurrency,
+                    messageValueSizeBytes: payloadSizeBytes,
                     numberOfPeers: client.peers.count,
                 )
 
@@ -160,7 +203,44 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameter index: The index to use for generating the key and value
     /// - Returns: A PutRequest with the generated key and value
     func makePutRequest(index: Int) -> PutRequest {
-        PutRequest(key: "stress-key-\(index)", value: "stress-value-\(index)-\(randomness.uuidString)")
+        let indexString = String(format: "%0\(fixedIndexWidth)d", index)
+        let key = "stress-key-\(indexString)"
+        let value: String = makeFixedSizeValue(index: index, sizeBytes: payloadSizeBytes)
+        return PutRequest(key: key, value: value)
+    }
+
+    /// Create a value string with exactly `sizeBytes` bytes (UTF-8), embedding
+    /// a deterministic seed based on the UUID and index to reduce collisions.
+    /// Falls back to truncation if the seed exceeds the requested size.
+    func makeFixedSizeValue(index: Int, sizeBytes: Int) -> String {
+        // Build the seed using precomputed prefix and a fixed-width index to maintain constant length
+        let indexPart = String(format: "%0\(fixedIndexWidth)d", index)
+        let seed = "\(payloadSeedPrefix)\(indexPart)-"
+        let seedBytes = seed.lengthOfBytes(using: .utf8)
+        if seedBytes >= sizeBytes {
+            let bytes = Array(seed.utf8.prefix(sizeBytes))
+            return String(decoding: bytes, as: UTF8.self)
+        }
+
+        // Use precomputed filler if available and the sizes match; otherwise compute minimal remainder
+        if let filler = precomputedFiller {
+            // precomputed filler is based on minimalSeed; adjust only if lengths match
+            let expectedFillerCount = sizeBytes - seedBytes
+            if filler.count == expectedFillerCount {
+                return seed + filler
+            } else if expectedFillerCount > 0 {
+                // slice or extend a small filler without allocating a fresh large string frequently
+                if expectedFillerCount <= filler.count {
+                    let endIndex = filler.index(filler.startIndex, offsetBy: expectedFillerCount)
+                    return seed + String(filler[..<endIndex])
+                } else {
+                    return seed + filler + String(repeating: "x", count: expectedFillerCount - filler.count)
+                }
+            }
+        }
+
+        let fillCount = sizeBytes - seedBytes
+        return seed + String(repeating: "x", count: max(0, fillCount))
     }
 
     /// Execute a single operation with leader failover handling
@@ -309,6 +389,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             totalDuration: result.totalDuration,
             concurrency: result.concurrency,
             compactionThreshold: implementationVersion.compactionThreshold,
+            messageValueSizeBytes: result.messageValueSizeBytes,
             machine: RaftStressTestPayload.RaftMachineInfo(
                 name: machineName,
                 cpu: cpuCores,

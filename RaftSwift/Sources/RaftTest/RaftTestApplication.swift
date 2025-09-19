@@ -22,6 +22,7 @@ public protocol RaftTestApplication: Sendable {
         durationSeconds: Int?,
         cpuCores: Double?,
         memory: Double?,
+        payloadSizeBytes: Int,
         skipSanityCheck: Bool,
     ) async throws
 

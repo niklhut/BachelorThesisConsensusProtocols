@@ -9,6 +9,19 @@ extension DistributedReception.Key {
     }
 }
 
+actor NodeRegistry {
+    static let shared = NodeRegistry()
+    private var storage: [UUID: any RaftNodeProtocol] = [:]
+
+    func register(_ node: any RaftNodeProtocol, id: UUID) {
+        storage[id] = node
+    }
+
+    func lookup(id: UUID) -> (any RaftNodeProtocol)? {
+        storage[id]
+    }
+}
+
 /// A peer transport that uses distributed actors for communication
 distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWatch, PeerDiscovery {
     typealias ActorSystem = ClusterSystem
@@ -18,9 +31,6 @@ distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWat
     var remoteActors: [Peer: DistributedActorNodeTransport] = [:]
     var listingTask: Task<Void, Never>?
 
-    /// The node provider
-    private let nodeProvider: () -> (any RaftNodeProtocol)?
-
     /// The node
     var node: (any RaftNodeProtocol)!
 
@@ -29,20 +39,14 @@ distributed actor DistributedActorNodeTransport: RaftNodeTransport, LifecycleWat
     ///   - nodeProvider: The node provider
     ///   - peers: The list of peers
     ///   - actorSystem: The actor system
-    init(nodeProvider: @escaping () -> (any RaftNodeProtocol)?, peers: [Peer], actorSystem: ActorSystem) {
-        self.nodeProvider = nodeProvider
+    init(peers: [Peer], actorSystem: ActorSystem) {
         self.peers = peers
         self.actorSystem = actorSystem
     }
 
     /// Sets the node using the node provider passed during initialization
-    distributed func setNode() {
-        guard let node = nodeProvider() else {
-            actorSystem.log.warning("Node not found")
-            return
-        }
-
-        self.node = node
+    distributed func setNode(nodeId: UUID) async throws {
+        node = await NodeRegistry.shared.lookup(id: nodeId)
     }
 
     // MARK: - Peer Discovery

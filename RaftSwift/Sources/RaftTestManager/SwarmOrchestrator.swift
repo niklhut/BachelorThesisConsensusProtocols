@@ -136,6 +136,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                 ops = [first]
             }
             let conc = listOrNil(vary?.concurrencyLevels, fallback: fixed?.concurrencyLevels) ?? [2]
+            let payloadStrings = listOrNil(vary?.payloadSizes, fallback: fixed?.payloadSizes) ?? []
+            let payloadOptions: [String?] = payloadStrings.isEmpty ? [nil] : payloadStrings.map { Optional($0) }
 
             // instance sizes precedence
             let instancePairs: [(String?, String?)] = {
@@ -173,13 +175,18 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                             logger.debug("     - Operations: \(o)")
                             for c in conc {
                                 logger.debug("       - Concurrency: \(c)")
-                                for (cpu, mem) in instancePairs {
-                                    logger.debug("         - Instance: CPU: \(cpu ?? "N/A"), Memory: \(mem ?? "N/A")")
-                                    if image.lowercased().contains("raftswift") {
-                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
-                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: true, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
-                                    } else {
-                                        combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
+                                for payload in payloadOptions {
+                                    let payloadDesc = payload ?? "default"
+                                    logger.debug("         - Payload: \(payloadDesc)")
+                                    let payloadBytes = Self.parseSizeToBytes(payload)
+                                    for (cpu, mem) in instancePairs {
+                                        logger.debug("         - Instance: CPU: \(cpu ?? "N/A"), Memory: \(mem ?? "N/A")")
+                                        if image.lowercased().contains("raftswift") {
+                                            combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
+                                            combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: true, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
+                                        } else {
+                                            combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
+                                        }
                                     }
                                 }
                             }
@@ -314,12 +321,36 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                 durationSeconds: params.testDurationSeconds,
                 cpuCores: cpuCores,
                 memory: memoryGB,
+                payloadSizeBytes: params.payloadSizeBytes ?? 55,
                 skipSanityCheck: true,
             )
             return .success
         } catch {
             return .failed
         }
+    }
+
+    private static func parseSizeToBytes(_ s: String?) -> Int? {
+        guard let s = s?.trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty else { return nil }
+        let t = s.uppercased()
+        if let n = Int(t) { return n }
+        if t.hasSuffix("B") {
+            let num = String(t.dropLast())
+            if let n = Int(num) { return n }
+        }
+        if t.hasSuffix("KB") {
+            let num = String(t.dropLast(2))
+            if let n = Double(num) { return Int(n * 1024.0) }
+        }
+        if t.hasSuffix("MB") {
+            let num = String(t.dropLast(2))
+            if let n = Double(num) { return Int(n * 1024.0 * 1024.0) }
+        }
+        if t.hasSuffix("GB") {
+            let num = String(t.dropLast(2))
+            if let n = Double(num) { return Int(n * 1024.0 * 1024.0 * 1024.0) }
+        }
+        return nil
     }
 
     private static func normalizeMemoryToGB(_ value: String) -> Double? {

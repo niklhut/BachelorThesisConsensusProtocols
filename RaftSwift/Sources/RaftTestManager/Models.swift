@@ -61,6 +61,7 @@ public struct ScenarioAxes: Decodable, Sendable {
     let peerCounts: [Int]?
     let operationCounts: [Int]?
     let concurrencyLevels: [Int]?
+    let payloadSizes: [String]? // e.g., ["16B", "1KB", "64KB", "1MB"]
     let cpuLimits: [String]? // optional axis (legacy)
     let memoryLimits: [String]? // optional axis (legacy)
     let instanceSizes: [InstanceSize]? // preferred combined axis
@@ -72,6 +73,7 @@ public struct ScenarioAxes: Decodable, Sendable {
         case peerCounts = "peer_counts"
         case operationCounts = "operation_counts"
         case concurrencyLevels = "concurrency_levels"
+        case payloadSizes = "payload_sizes"
         case cpuLimits = "cpu_limits"
         case memoryLimits = "memory_limits"
         case instanceSizes = "instance_sizes"
@@ -96,6 +98,7 @@ public struct TestCombination: Sendable {
     public let peers: Int
     public let operations: Int
     public let concurrency: Int
+    public let payloadSizeBytes: Int?
     public let cpuLimit: String?
     public let memoryLimit: String?
     public let persistence: TestPersistence
@@ -105,7 +108,7 @@ public struct TestCombination: Sendable {
     public let testDurationSeconds: Int?
 
     var description: String {
-        "{image: \(image), compaction: \(compactionThreshold), peers: \(peers), ops: \(operations), conc: \(concurrency), cpu: \(cpuLimit ?? "nil"), mem: \(memoryLimit ?? "nil"), persistence: \(persistence), scenario: \(scenarioName ?? "nil"), DAS: \(useDistributedActorSystem), manualLocks: \(useManualLocks), duration: \(testDurationSeconds.map(String.init) ?? "nil")}"
+        "{image: \(image), compaction: \(compactionThreshold), peers: \(peers), ops: \(operations), conc: \(concurrency), payload: \(payloadSizeBytes.map { "\($0)B" } ?? "nil"), cpu: \(cpuLimit ?? "nil"), mem: \(memoryLimit ?? "nil"), persistence: \(persistence), scenario: \(scenarioName ?? "nil"), DAS: \(useDistributedActorSystem), manualLocks: \(useManualLocks), duration: \(testDurationSeconds.map(String.init) ?? "nil")}"
     }
 }
 

@@ -1052,7 +1052,7 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
     /// - Parameter peer: The peer to send the snapshot to.
     private func sendSnapshotToPeer(_ peer: Peer) async throws {
         let (shouldReturn, currentTerm, leaderID, snapshot) = lock.withLock { () -> (Bool, Int, Int, Snapshot?) in
-            guard volatileState.state == .leader, let sendingSnapshotToPeer = persistentState.isSendingSnapshot[peer.id], !sendingSnapshotToPeer else {
+            guard volatileState.state == .leader, persistentState.isSendingSnapshot[peer.id] != true else {
                 return (true, 0, 0, nil)
             }
 

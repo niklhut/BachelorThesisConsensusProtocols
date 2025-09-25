@@ -931,7 +931,7 @@ public actor RaftNode: RaftNodeProtocol {
     ///
     /// - Parameter peer: The peer to send the snapshot to.
     private func sendSnapshotToPeer(_ peer: Peer) async throws {
-        guard volatileState.state == .leader, let sendingSnapshotToPeer = persistentState.isSendingSnapshot[peer.id], !sendingSnapshotToPeer else {
+        guard volatileState.state == .leader, persistentState.isSendingSnapshot[peer.id] != true else {
             return
         }
 

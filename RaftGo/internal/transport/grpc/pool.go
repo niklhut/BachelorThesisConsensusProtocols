@@ -38,6 +38,10 @@ func (p *GRPCClientPool) GetClient(to util.Peer) (proto.RaftPeerClient, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithChainUnaryInterceptor(p.interceptors...),
 		grpc.WithChainStreamInterceptor(p.streamInterceptors...),
+		grpc.WithDefaultCallOptions(
+			grpc.MaxCallSendMsgSize(100*1024*1024),
+			grpc.MaxCallRecvMsgSize(100*1024*1024),
+		), // 100 MB
 	)
 	if err != nil {
 		return nil, err

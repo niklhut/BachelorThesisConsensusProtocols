@@ -58,10 +58,13 @@ public final class RaftGRPCServer: RaftNodeApplication {
         let partitionInterceptor = NetworkPartitionInterceptor(logger: logger)
         let partitionService = PartitionService(partitionController: partitionInterceptor)
 
-        let server = GRPCServer(
+        let server: GRPCServer<HTTP2ServerTransport.Posix> = GRPCServer(
             transport: .http2NIOPosix(
                 address: .ipv4(host: "0.0.0.0", port: ownPeer.port),
                 transportSecurity: .plaintext,
+                config: HTTP2ServerTransport.Posix.Config.defaults(configure: { config in
+                    config.rpc.maxRequestPayloadSize = 100 * 1024 * 1024 // 100 MB
+                }),
             ),
             services: [
                 peerService,

@@ -63,6 +63,7 @@ class RaftGRPCServer(
         server = NettyServerBuilder.forAddress(
             InetSocketAddress("0.0.0.0", ownPeer.port)
         )
+            .maxInboundMessageSize(100 * 1024 * 1024) // 100 MB
             .addService(peerService)
             .addService(clientService)
             .addService(partitionService)

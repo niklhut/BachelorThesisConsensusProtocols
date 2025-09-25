@@ -24,6 +24,7 @@ class GRPCClientPool(
         return ManagedChannelBuilder
             .forAddress(address.hostAddress, peer.port)
             .usePlaintext()
+            .maxInboundMessageSize(100 * 1024 * 1024) // 100 MB
             .intercept(interceptors)
             .build()
     }

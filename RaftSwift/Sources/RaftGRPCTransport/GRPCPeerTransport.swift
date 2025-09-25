@@ -1,3 +1,4 @@
+import GRPCCore
 import RaftCore
 
 /// GRPC implementation of the RaftNodeTransport protocol.
@@ -60,12 +61,14 @@ final class GRPCNodeTransport: RaftNodeTransport {
     ) async throws -> InstallSnapshotResponse {
         let client = try await clientPool.client(for: peer)
         let peerClient = Raft_RaftPeer.Client(wrapping: client)
+        var callOptions = CallOptions.defaults
+        callOptions.maxRequestMessageBytes = 100 * 1024 * 1024 // 100 MB
 
         let response = try await peerClient.installSnapshot(.with { grpcRequest in
             grpcRequest.term = UInt64(request.term)
             grpcRequest.leaderID = UInt32(request.leaderID)
             grpcRequest.snapshot = request.snapshot.toGRPC()
-        })
+        }, options: callOptions)
 
         return InstallSnapshotResponse(
             term: Int(response.term),

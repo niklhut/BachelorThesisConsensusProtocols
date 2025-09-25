@@ -67,7 +67,9 @@ func (s *RaftGRPCServer) Serve(ctx context.Context) error {
 
 	grpcServer := grpc.NewServer(
 		grpc.ChainUnaryInterceptor(partitionInterceptor.UnaryServerInterceptor()),
-		grpc.ChainStreamInterceptor(partitionInterceptor.StreamServerInterceptor()))
+		grpc.ChainStreamInterceptor(partitionInterceptor.StreamServerInterceptor()),
+		grpc.MaxRecvMsgSize(100*1024*1024), // 100 MB
+	)
 
 	// Register Services
 	proto.RegisterRaftPeerServer(grpcServer, NewRaftPeerService(raftNode))

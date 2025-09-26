@@ -276,18 +276,11 @@ public final class SwarmOrchestrator: @unchecked Sendable {
             peerArgs.append(args)
         }
 
-        try await withThrowingTaskGroup { group in
-            for args in peerArgs {
-                group.addTask { [weak self] in
-                    guard let self else { throw CancellationError() }
-                    try manager.createService(args, background: false)
-                }
-            }
-            try await group.waitForAll()
+        let attempts = 5
+        let started = await manager.createServicesWithRetry(peerArgs, timeout: 7, attempts: attempts)
+        if !started {
+            throw NSError(domain: "SwarmOrchestrator", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to start peer services after \(attempts) attempts"])
         }
-
-        // Give peers time to come up
-        try await Task.sleep(for: .seconds(1))
     }
 
     private func runClientOnce(params: TestCombination, nodeServers: [String], port: Int, analytics: AnalyticsSettings?, allowPartialOnTimeout: Bool) async -> RepetitionResult.Status {

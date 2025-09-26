@@ -25,6 +25,10 @@ public enum Shell {
         if let timeout {
             let deadline = Date().addingTimeInterval(timeout)
             while process.isRunning, Date() < deadline {
+                if Task.isCancelled {
+                    process.terminate()
+                    return (code: -1, out: nil, err: "Process cancelled")
+                }
                 Thread.sleep(forTimeInterval: 0.05)
             }
             if process.isRunning {
@@ -63,22 +67,58 @@ public struct DockerSwarmServiceManager {
         }
     }
 
-    public func createService(_ args: String, background: Bool = true) throws {
-        // docker service create ... (non-blocking)
-        let cmd = "docker service create --with-registry-auth \(args)"
-        logger.debug("Executing command: \(cmd)")
-        if background {
-            // spawn and return immediately
-            let task = Process()
-            task.executableURL = URL(fileURLWithPath: "/bin/bash")
-            task.arguments = ["-lc", cmd]
-            try task.run()
-            // don't wait
-        } else {
-            let (code, _, err) = try Shell.run(cmd)
-            if code != 0 {
-                throw NSError(domain: "Docker", code: Int(code), userInfo: [NSLocalizedDescriptionKey: String(describing: err)])
+    public func createServices(_ argsList: [String], timeout: TimeInterval) async throws -> Bool {
+        try await withThrowingTaskGroup { group in
+            for args in argsList {
+                let cmd = "docker service create --with-registry-auth \(args)"
+                group.addTask { [logger] in
+                    logger.debug("Executing command: \(cmd)")
+                    let (code, _, err) = try Shell.run(cmd, timeout: timeout)
+                    if code != 0 {
+                        logger.error("Error creating service: \(String(describing: err))")
+                        return false
+                    }
+                    return true
+                }
+            }
+
+            var allSucceeded = true
+            for try await success in group {
+                if !success {
+                    allSucceeded = false
+                    group.cancelAll()
+                }
+            }
+            return allSucceeded
+        }
+    }
+
+    public func createServicesWithRetry(
+        _ argsList: [String],
+        timeout: TimeInterval,
+        attempts: Int = 5,
+    ) async -> Bool {
+        for attempt in 1 ... attempts {
+            logger.info("Creating services (attempt \(attempt) of \(attempts))")
+
+            do {
+                let success = try await createServices(argsList, timeout: timeout)
+                if success {
+                    logger.info("Services created successfully on attempt \(attempt)")
+                    return true
+                }
+            } catch {
+                logger.error("Error creating services on attempt \(attempt): \(error)")
+            }
+
+            // Only retry if there are attempts left
+            if attempt < attempts {
+                logger.warning("Removing all services before retrying…")
+                removeAllServices()
             }
         }
+
+        logger.error("Failed to create services after \(attempts) attempts")
+        return false
     }
 }

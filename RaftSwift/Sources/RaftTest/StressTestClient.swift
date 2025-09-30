@@ -181,8 +181,6 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         }
         let result = await aggregationTask.value
 
-        logger.info("Stress test completed")
-
         #if !DEBUG
             // If stop was requested and allowed to send partial, still send analytics
             if await StressTestRuntime.shared.allowPartialOnStop {
@@ -195,6 +193,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         if !skipSanityCheck {
             try await sanityCheck(concurrency: concurrency)
         }
+
+        logger.info("Stress test completed")
     }
 
     // MARK: - Helpers

@@ -205,11 +205,9 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
     private func runSingleTest(testNumber: Int, totalNumberOfTests: Int, params: TestCombination, analytics: AnalyticsSettings?) async throws {
         logger.info("Starting test \(testNumber) / \(totalNumberOfTests) with parameters: \(params.description)")
-        var repetitionResults: [RepetitionResult] = []
-
         // Select servers for peers
         let nodeServers = Array(servers.prefix(params.peers).map(\.0))
-        let port = lastPort
+        var port = lastPort
         lastPort += 1
         if lastPort > 50100 { lastPort = 50000 }
 
@@ -227,15 +225,16 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                 if r == 0, attempt > 1 {
                     logger.info("  Full restart of peers for new attempt")
                     cleanup()
-                    try await startPeers(params: params, nodeServers: nodeServers, port: Int.random(in: 50000 ... 50100))
+                    port = lastPort
+                    lastPort += 1
+                    if lastPort > 50100 { lastPort = 50000 }
+                    try await startPeers(params: params, nodeServers: nodeServers, port: port)
                 }
 
                 let isLastAttempt = attempt == retries
                 status = await runClientOnce(params: params, nodeServers: nodeServers, port: port, analytics: analytics, allowPartialOnTimeout: isLastAttempt)
                 if status == .success { break }
             }
-
-            repetitionResults.append(RepetitionResult(repetition: r + 1, status: status))
         }
 
         cleanup()
@@ -281,6 +280,9 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         if !started {
             throw NSError(domain: "SwarmOrchestrator", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to start peer services after \(attempts) attempts"])
         }
+
+        // Allow some time for peers to start up
+        try await Task.sleep(for: .seconds(1))
     }
 
     private func runClientOnce(params: TestCombination, nodeServers: [String], port: Int, analytics: AnalyticsSettings?, allowPartialOnTimeout: Bool) async -> RepetitionResult.Status {
@@ -319,6 +321,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
             )
             return .success
         } catch {
+            logger.error("Client encountered error: \(error)")
             return .failed
         }
     }

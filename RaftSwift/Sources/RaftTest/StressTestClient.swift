@@ -85,7 +85,6 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     ///   - operations: The number of operations to perform.
     ///   - concurrency: The number of concurrent operations to perform.
     public func run(operations: Int, concurrency: Int, timeout: TimeInterval, durationSeconds: Int?, skipSanityCheck: Bool) async throws {
-        let startTime = Date()
         let payloadLabel = payloadSizeBytes > 0 ? "payload=\(payloadSizeBytes)B" : "payload=default"
         if let durationSeconds {
             logger.info("Starting stress test for \(durationSeconds)s, concurrency=\(concurrency), \(payloadLabel)")
@@ -96,8 +95,8 @@ public actor StressTestClient<Transport: RaftClientTransport> {
         leader = try await client.findLeader()
 
         var nextOperationIndex = concurrency
-        let targetDuration: TimeInterval? = durationSeconds.flatMap { TimeInterval($0) }
 
+        let startTime = Date()
         // Aggregation task that runs the load and collects metrics
         let aggregationTask = Task { () async -> RaftStressTestResult in
             await withTaskGroup(of: (success: Bool, latency: Double).self) { group in
@@ -129,10 +128,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                     }
 
                     // Add a new task if there are operations remaining
-                    let elapsed = Date().timeIntervalSince(startTime)
-                    let durationReached = targetDuration.map { elapsed >= $0 } ?? false
-                    let timeoutReached = (durationSeconds == nil) ? (elapsed >= timeout) : false
-                    if Task.isCancelled || durationReached || timeoutReached {
+                    if Task.isCancelled {
                         // Do not enqueue new work once duration/timeout reached
                         logger.info("Duration/timeout reached or cancelled, not adding new tasks")
                     } else if (durationSeconds != nil) || (nextOperationIndex < operations) {
@@ -149,7 +145,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                     // Stop consuming when: duration reached (strict), timeout/cancel,
                     // or in operations mode: when all operations completed.
                     let operationsCompleted = (durationSeconds == nil) && (completed == operations)
-                    if durationReached || timeoutReached || operationsCompleted || Task.isCancelled {
+                    if operationsCompleted || Task.isCancelled {
                         group.cancelAll()
                         break
                     }
@@ -179,7 +175,29 @@ public actor StressTestClient<Transport: RaftClientTransport> {
                 return result
             }
         }
-        let result = await aggregationTask.value
+
+        // Race aggregation vs timeout
+        let result: RaftStressTestResult = await withTaskGroup(of: RaftStressTestResult.self) { group in
+            group.addTask {
+                await aggregationTask.value
+            }
+
+            group.addTask {
+                // Fire timeout, cancel aggregation, but let it produce partial result
+                try? await Task.sleep(for: .seconds(durationSeconds ?? Int(timeout)))
+                aggregationTask.cancel()
+                // Wait for aggregation to finish and return its partial result
+                return await aggregationTask.value
+            }
+
+            // First finished result wins
+            for await result in group {
+                group.cancelAll()
+                return result
+            }
+
+            fatalError("unreachable")
+        }
 
         #if !DEBUG
             // If stop was requested and allowed to send partial, still send analytics

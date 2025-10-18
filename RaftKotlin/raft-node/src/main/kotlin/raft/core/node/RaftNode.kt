@@ -49,7 +49,7 @@ class RaftNode(
     var leaderState = LeaderState()
 
     val majority: Int
-        get() = (persistentState.peers.size + 1) / 2 + 1
+        get() = (persistentState.peers.size) / 2 + 1
 
     // region Server RPCs
 
@@ -697,7 +697,7 @@ class RaftNode(
         if (volatileState.state != ServerState.LEADER) {
             logger.info("Not a leader, not replicating log")
             mutex.unlock()
-            return
+            throw RaftError.NotLeader
         }
 
         resetElectionTimer()

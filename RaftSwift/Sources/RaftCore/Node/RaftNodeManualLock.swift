@@ -25,7 +25,7 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
 
     /// The number of votes needed to become the leader or commit a log entry.
     var majority: Int {
-        (persistentState.peers.count + 1) / 2 + 1
+        (persistentState.peers.count) / 2 + 1
     }
 
     // MARK: - Init
@@ -43,7 +43,7 @@ public final class RaftNodeManualLock: @unchecked Sendable, RaftNodeProtocol {
         config: RaftConfig,
         transport: any RaftNodeTransport,
         persistence: any RaftNodePersistence,
-        collectMetrics: Bool
+        collectMetrics: Bool,
     ) {
         self.transport = transport
         let newLogger = Logger(label: "raft.RaftNode.\(ownPeer.id)")

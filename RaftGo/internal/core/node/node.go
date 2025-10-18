@@ -61,7 +61,7 @@ type RaftNode struct {
 func (rn *RaftNode) Majority() int {
 	rn.mu.RLock()
 	defer rn.mu.RUnlock()
-	return (len(rn.persistentState.Peers)+1)/2 + 1
+	return (len(rn.persistentState.Peers))/2 + 1
 }
 
 // NewRaftNode creates and initializes a new RaftNode.

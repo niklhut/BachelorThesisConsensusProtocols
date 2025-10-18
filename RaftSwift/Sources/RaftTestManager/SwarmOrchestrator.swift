@@ -222,7 +222,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
             while attempt < retries {
                 logger.info(" Test \(testNumber) / \(totalNumberOfTests) - Repetition \(r + 1) / \(repetitions) - Attempt \(attempt + 1) / \(retries)")
                 attempt += 1
-                if r == 0, attempt > 1 {
+                if attempt > 1 {
                     logger.info("  Full restart of peers for new attempt")
                     cleanup()
                     port = lastPort
@@ -304,11 +304,10 @@ public final class SwarmOrchestrator: @unchecked Sendable {
 
         // Configure runtime analytics for this run
         await StressTestRuntime.shared.configureAnalytics(baseUrl: analytics?.baseUrl, apiKey: analytics?.apiKey, machineName: analytics?.machineName)
-        await StressTestRuntime.shared.setAllowPartialOnStop(allowPartialOnTimeout)
 
         let suite = testSuiteName
-        do {
-            try await client.runStressTest(
+        let success =
+            await client.runStressTest(
                 operations: params.operations,
                 concurrency: params.concurrency,
                 testSuiteName: suite,
@@ -319,11 +318,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                 payloadSizeBytes: params.payloadSizeBytes ?? 55,
                 skipSanityCheck: true,
             )
-            return .success
-        } catch {
-            logger.error("Client encountered error: \(error)")
-            return .failed
-        }
+        return success ? .success : .failed
     }
 
     private static func parseSizeToBytes(_ s: String?) -> Int? {

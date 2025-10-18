@@ -84,7 +84,7 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameters:
     ///   - operations: The number of operations to perform.
     ///   - concurrency: The number of concurrent operations to perform.
-    public func run(operations: Int, concurrency: Int, timeout: TimeInterval, durationSeconds: Int?, skipSanityCheck: Bool) async throws {
+    public func run(operations: Int, concurrency: Int, timeout: TimeInterval, durationSeconds: Int?, skipSanityCheck: Bool) async -> Bool {
         let payloadLabel = payloadSizeBytes > 0 ? "payload=\(payloadSizeBytes)B" : "payload=default"
         if let durationSeconds {
             logger.info("Starting stress test for \(durationSeconds)s, concurrency=\(concurrency), \(payloadLabel)")
@@ -92,7 +92,12 @@ public actor StressTestClient<Transport: RaftClientTransport> {
             logger.info("Starting stress test with \(operations) operations, concurrency=\(concurrency), \(payloadLabel)")
         }
 
-        leader = try await client.findLeader()
+        do {
+            leader = try await client.findLeader()
+        } catch {
+            logger.error("Failed to find leader: \(error)")
+            return false
+        }
 
         var nextOperationIndex = concurrency
 
@@ -201,18 +206,25 @@ public actor StressTestClient<Transport: RaftClientTransport> {
 
         #if !DEBUG
             // If stop was requested and allowed to send partial, still send analytics
-            if await StressTestRuntime.shared.allowPartialOnStop {
+            do {
                 try await sendStressTestData(result)
-            } else {
-                try await sendStressTestData(result)
+            } catch {
+                logger.error("Failed to send stress test data: \(error)")
+                return false
             }
         #endif
 
         if !skipSanityCheck {
-            try await sanityCheck(concurrency: concurrency)
+            do {
+                try await sanityCheck(concurrency: concurrency)
+            } catch {
+                logger.error("Sanity check failed: \(error)")
+                return false
+            }
         }
 
         logger.info("Stress test completed")
+        return true
     }
 
     // MARK: - Helpers

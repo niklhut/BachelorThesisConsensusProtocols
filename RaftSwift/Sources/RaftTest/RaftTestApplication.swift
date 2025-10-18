@@ -24,7 +24,7 @@ public protocol RaftTestApplication: Sendable {
         memory: Double?,
         payloadSizeBytes: Int,
         skipSanityCheck: Bool,
-    ) async throws
+    ) async -> Bool
 
     /// Runs the functionality tests
     /// - Throws: Any errors thrown by the client or test suite

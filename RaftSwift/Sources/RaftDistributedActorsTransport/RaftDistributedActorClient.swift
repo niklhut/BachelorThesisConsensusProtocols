@@ -71,24 +71,28 @@ public final class RaftDistributedActorClient: RaftTestApplication, PeerConnecta
         memory: Double?,
         payloadSizeBytes: Int,
         skipSanityCheck: Bool,
-    ) async throws {
-        let client = try await setupClient()
+    ) async -> Bool {
+        do {
+            let client = try await setupClient()
+            let stressTestClient = StressTestClient(
+                client: client,
+                testSuite: testSuiteName,
+                cpuCores: cpuCores,
+                memory: memory,
+                payloadSizeBytes: payloadSizeBytes,
+            )
 
-        let stressTestClient = StressTestClient(
-            client: client,
-            testSuite: testSuiteName,
-            cpuCores: cpuCores,
-            memory: memory,
-            payloadSizeBytes: payloadSizeBytes,
-        )
-
-        try await stressTestClient.run(
-            operations: operations,
-            concurrency: concurrency,
-            timeout: timeout,
-            durationSeconds: durationSeconds,
-            skipSanityCheck: skipSanityCheck,
-        )
+            return await stressTestClient.run(
+                operations: operations,
+                concurrency: concurrency,
+                timeout: timeout,
+                durationSeconds: durationSeconds,
+                skipSanityCheck: skipSanityCheck,
+            )
+        } catch {
+            logger.error("Failed to set up client: \(error)")
+            return false
+        }
     }
 
     public func runFunctionalityTests() async throws {

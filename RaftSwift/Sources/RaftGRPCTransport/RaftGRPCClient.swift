@@ -17,7 +17,7 @@ public final class RaftGRPCClient: RaftTestApplication {
         self.peers = peers
     }
 
-    private func setupClient() async throws -> RaftClient<GRPCClientTransport> {
+    private func setupClient() async -> RaftClient<GRPCClientTransport> {
         let client = RaftClient(
             peers: peers,
             transport: GRPCClientTransport(clientPool: GRPCClientPool()),
@@ -27,7 +27,7 @@ public final class RaftGRPCClient: RaftTestApplication {
     }
 
     public func runInteractiveClient() async throws {
-        let client = try await setupClient()
+        let client = await setupClient()
 
         let interactiveConsoleClient = InteractiveConsoleClient(client: client)
 
@@ -44,8 +44,8 @@ public final class RaftGRPCClient: RaftTestApplication {
         memory: Double?,
         payloadSizeBytes: Int,
         skipSanityCheck: Bool,
-    ) async throws {
-        let client = try await setupClient()
+    ) async -> Bool {
+        let client = await setupClient()
 
         let stressTestClient = StressTestClient(
             client: client,
@@ -55,7 +55,7 @@ public final class RaftGRPCClient: RaftTestApplication {
             payloadSizeBytes: payloadSizeBytes,
         )
 
-        try await stressTestClient.run(
+        return await stressTestClient.run(
             operations: operations,
             concurrency: concurrency,
             timeout: timeout,
@@ -64,8 +64,8 @@ public final class RaftGRPCClient: RaftTestApplication {
         )
     }
 
-    public func runFunctionalityTests() async throws {
-        let client = try await setupClient()
+    public func runFunctionalityTests() async {
+        let client = await setupClient()
 
         let functionalityTestClient = RaftTestClient(client: client)
 

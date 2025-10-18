@@ -432,10 +432,14 @@ func (rn *RaftNode) HandleInstallSnapshot(request util.InstallSnapshotRequest) u
 func (rn *RaftNode) Put(ctx context.Context, request util.PutRequest) (util.PutResponse, error) {
 	rn.mu.RLock()
 	if rn.volatileState.State != util.ServerStateLeader {
+		var leaderHint *util.Peer
+		if rn.volatileState.CurrentLeaderID != nil {
+			leaderHint = rn.firstPeerWithID(*rn.volatileState.CurrentLeaderID)
+		}
 		rn.mu.RUnlock()
 		return util.PutResponse{
 			Success:    false,
-			LeaderHint: rn.firstPeerWithID(*rn.volatileState.CurrentLeaderID),
+			LeaderHint: leaderHint,
 		}, nil
 	}
 	term := rn.persistentState.CurrentTerm
@@ -465,8 +469,12 @@ func (rn *RaftNode) Get(ctx context.Context, request util.GetRequest) util.GetRe
 	defer rn.mu.RUnlock()
 
 	if rn.volatileState.State != util.ServerStateLeader {
+		var leaderHint *util.Peer
+		if rn.volatileState.CurrentLeaderID != nil {
+			leaderHint = rn.firstPeerWithID(*rn.volatileState.CurrentLeaderID)
+		}
 		return util.GetResponse{
-			LeaderHint: rn.firstPeerWithID(*rn.volatileState.CurrentLeaderID),
+			LeaderHint: leaderHint,
 		}
 	}
 

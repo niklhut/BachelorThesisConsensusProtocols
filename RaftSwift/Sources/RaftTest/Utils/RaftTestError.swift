@@ -13,6 +13,7 @@ public enum RaftTestError: Error, LocalizedError {
     case operationFailed(operation: String, reason: String)
     case timeoutWaitingForCondition(condition: String)
     case invalidTestConfiguration(reason: String)
+    case insufficientDiagnosticsResponses
 
     public var errorDescription: String? {
         switch self {
@@ -36,6 +37,8 @@ public enum RaftTestError: Error, LocalizedError {
             "Timeout waiting for condition: \(condition)"
         case let .invalidTestConfiguration(reason):
             "Invalid test configuration: \(reason)"
+        case .insufficientDiagnosticsResponses:
+            "Not enough diagnostics responses received to proceed"
         }
     }
 }

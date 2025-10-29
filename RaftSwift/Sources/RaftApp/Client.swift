@@ -78,7 +78,7 @@ final class Client: AsyncParsableCommand {
         } else if tests {
             try await client.runFunctionalityTests()
         } else if stressTest {
-            try await client.runStressTest(
+            await client.runStressTest(
                 operations: operations,
                 concurrency: concurrency,
                 testSuiteName: testSuite,

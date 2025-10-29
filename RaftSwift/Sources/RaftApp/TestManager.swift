@@ -16,7 +16,7 @@ final class TestManager: AsyncParsableCommand {
     @Option(help: "Path to scenarios JSON file")
     var scenarioConfig: String
 
-    public func run() async throws {
+    func run() async throws {
         // Create a single timestamp when the app starts
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd-HH-mm-ss"
@@ -38,7 +38,7 @@ final class TestManager: AsyncParsableCommand {
         let scenariosData = try Data(contentsOf: URL(fileURLWithPath: scenarioConfig))
         let decoder = JSONDecoder()
         if let root = try? decoder.decode(ScenarioRoot.self, from: scenariosData) {
-            orchestrator.applyGlobalOverrides(images: nil, timeout: root.timeout, retries: root.retries, repetitions: root.repetitions, persistence: root.persistence, collectMetrics: root.collectMetrics, testSuiteName: root.testSuiteName, resumeFromTestNumber: root.resumeFromTestNumber, testDurationSeconds: root.testDurationSeconds)
+            orchestrator.applyGlobalOverrides(images: nil, timeout: root.timeout, retries: root.retries, repetitions: root.repetitions, persistence: root.persistence, collectMetrics: root.collectMetrics, testSuiteName: root.testSuiteName, resumeFromTestNumber: root.resumeFromTestNumber, testDurationSeconds: root.testDurationSeconds, testSwiftManualLocks: root.testSwiftManualLocks)
         }
 
         // Ignore default signal handling so we can manage it manually

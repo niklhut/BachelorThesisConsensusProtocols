@@ -31,6 +31,7 @@ public final class SwarmOrchestrator: @unchecked Sendable {
     private var testSuiteName: String
     private var resumeFromTestNumber: Int?
     private var testDurationSeconds: Int?
+    private var testSwiftManualLocks: Bool
 
     public init(
         collectMetrics: Bool = true,
@@ -38,7 +39,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         retries: Int = 1,
         repetitions: Int = 3,
         persistence: TestPersistence = .file,
-        testSuiteName: String? = nil
+        testSuiteName: String? = nil,
+        testSwiftManualLocks: Bool = false,
     ) {
         logger.logLevel = .debug
         manager = DockerSwarmServiceManager(servicePrefix: servicePrefix, logger: logger)
@@ -47,11 +49,12 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         self.retries = retries
         self.repetitions = repetitions
         self.persistence = persistence
+        self.testSwiftManualLocks = testSwiftManualLocks
         self.testSuiteName = testSuiteName ?? "Raft Swarm Test Suite \(ISO8601DateFormatter().string(from: Date()))"
     }
 
     // Allow runtime overrides from scenario root
-    public func applyGlobalOverrides(images: [String]?, timeout: Int?, retries: Int?, repetitions: Int?, persistence: TestPersistence?, collectMetrics: Bool?, testSuiteName: String? = nil, resumeFromTestNumber: Int? = nil, testDurationSeconds: Int? = nil) {
+    public func applyGlobalOverrides(images: [String]?, timeout: Int?, retries: Int?, repetitions: Int?, persistence: TestPersistence?, collectMetrics: Bool?, testSuiteName: String? = nil, resumeFromTestNumber: Int? = nil, testDurationSeconds: Int? = nil, testSwiftManualLocks: Bool? = nil) {
         // images handled by caller
         if let t = timeout { self.timeout = TimeInterval(t) }
         if let r = retries { self.retries = r }
@@ -61,7 +64,8 @@ public final class SwarmOrchestrator: @unchecked Sendable {
         if let ts = testSuiteName { self.testSuiteName = ts }
         if let rs = resumeFromTestNumber { self.resumeFromTestNumber = rs }
         if let td = testDurationSeconds { self.testDurationSeconds = td }
-        logger.info("Applied global overrides: timeout=\(self.timeout)s, retries=\(self.retries), repetitions=\(self.repetitions), persistence=\(self.persistence), collectMetrics=\(self.collectMetrics), testSuiteName='\(self.testSuiteName)', resumeFromTestNumber=\(String(describing: self.resumeFromTestNumber)), durationSeconds=\(String(describing: self.testDurationSeconds)))")
+        if let sml = testSwiftManualLocks { self.testSwiftManualLocks = sml }
+        logger.info("Applied global overrides: timeout=\(self.timeout)s, retries=\(self.retries), repetitions=\(self.repetitions), persistence=\(self.persistence), collectMetrics=\(self.collectMetrics), testSuiteName='\(self.testSuiteName)', resumeFromTestNumber=\(String(describing: self.resumeFromTestNumber)), durationSeconds=\(String(describing: self.testDurationSeconds)), testSwiftManualLocks=\(self.testSwiftManualLocks)")
     }
 
     public enum Outcome: Sendable { case success, failure, timeout }
@@ -184,6 +188,10 @@ public final class SwarmOrchestrator: @unchecked Sendable {
                                         if image.lowercased().contains("raftswift") {
                                             combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
                                             combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: true, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
+                                            if testSwiftManualLocks {
+                                                combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: true, testDurationSeconds: self.testDurationSeconds))
+                                                combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: true, useManualLocks: true, testDurationSeconds: self.testDurationSeconds))
+                                            }
                                         } else {
                                             combos.append(TestCombination(image: image, compactionThreshold: th, peers: p, operations: o, concurrency: c, payloadSizeBytes: payloadBytes, cpuLimit: cpu, memoryLimit: mem, persistence: persList.first ?? persistence, scenarioName: sc.name, useDistributedActorSystem: false, useManualLocks: false, testDurationSeconds: self.testDurationSeconds))
                                         }

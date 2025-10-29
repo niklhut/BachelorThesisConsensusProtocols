@@ -368,19 +368,30 @@ public actor StressTestClient<Transport: RaftClientTransport> {
     /// - Parameter result: The result of the stress test
     private func sendStressTestData(_ result: RaftStressTestResult) async throws {
         // First get client implementation versions
-        let clientDiagnostics = try await withThrowingTaskGroup(of: DiagnosticsResponse.self) { group in
+        let clientDiagnostics = await withTaskGroup(of: DiagnosticsResponse?.self) { group in
             for peer in client.peers {
                 group.addTask {
-                    let diagnosticsRequest = DiagnosticsRequest(start: result.start, end: result.end)
-                    return try await self.client.getDiagnostics(request: diagnosticsRequest, of: peer)
+                    do {
+                        let diagnosticsRequest = DiagnosticsRequest(start: result.start, end: result.end)
+                        return try await self.client.getDiagnostics(request: diagnosticsRequest, of: peer)
+                    } catch {
+                        return nil
+                    }
                 }
             }
 
             var diagnostics = [DiagnosticsResponse]()
-            for try await version in group {
-                diagnostics.append(version)
+            for await response in group {
+                if let response {
+                    diagnostics.append(response)
+                }
             }
             return diagnostics
+        }
+
+        guard clientDiagnostics.count >= (client.peers.count) / 2 + 1 else {
+            logger.error("Not enough diagnostics responses received to send stress test data")
+            throw RaftTestError.insufficientDiagnosticsResponses
         }
 
         guard let implementationVersion = clientDiagnostics.first else { return }

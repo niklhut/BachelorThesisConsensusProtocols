@@ -1,0 +1,67 @@
+{
+  "servers": [
+    {
+      "hostname": "zs05.lab.dm.informatik.tu-darmstadt.de",
+      "ip": "10.10.2.185"
+    },
+    {
+      "hostname": "zs04.lab.dm.informatik.tu-darmstadt.de",
+      "ip": "10.10.2.184"
+    },
+    {
+      "hostname": "zs06",
+      "ip": "10.10.2.186"
+    },
+    {
+      "hostname": "zs07.lab.dm.informatik.tu-darmstadt.de",
+      "ip": "10.10.2.187"
+    },
+    {
+      "hostname": "zs08.lab.dm.informatik.tu-darmstadt.de",
+      "ip": "10.10.2.188"
+    }
+  ],
+  "images": [
+    "registry.niklabs.de/niklhut/raftswift:1.5.0",
+    "registry.niklabs.de/niklhut/raftgo:1.5.0",
+    "registry.niklabs.de/niklhut/raftkotlin:1.5.0"
+  ],
+  "test_suite_name": "Test Message Size and Instance Sizes fixed time v2.1",
+  "timeout": 70,
+  "test_duration_seconds": 60,
+  "resume_from_test_number": 0,
+  "retries": 3,
+  "analytics": {
+    "baseUrl": "",
+    "apiKey": "",
+    "machineName": ""
+  },
+  "scenarios": [
+    {
+      "name": "Test",
+      "fixed": {
+        "operation_counts": [50000],
+        "peer_counts": [5],
+        "concurrency_levels": [10],
+        "compaction_thresholds": [1000],
+        "instance_sizes": [
+          {
+            "cpu_limits": "1",
+            "memory_limits": "0.5G"
+          },
+          {
+            "cpu_limits": "2",
+            "memory_limits": "2G"
+          },
+          {
+            "cpu_limits": "4",
+            "memory_limits": "8G"
+          }
+        ]
+      },
+      "vary": {
+        "payload_sizes": ["64B", "512B", "1024B"]
+      }
+    }
+  ]
+}
